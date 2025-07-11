@@ -39,25 +39,29 @@
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
           ];
-
-          # Additional environment variables can be set directly
-          # MY_CUSTOM_VAR = "some value";
         };
 
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
+        individualCrateArgs = commonArgs // {
+          inherit cargoArtifacts;
+          inherit (craneLib.crateNameFromCargoToml { inherit src; }) version;
+          doCheck = false;
+        };
+
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        fracturedb = craneLib.buildPackage (commonArgs // {
+        fdb = craneLib.buildPackage (individualCrateArgs // {
           inherit cargoArtifacts;
-          doCheck = false;
+          pname = "fdb";
+          cargoExtraArgs = "-p fdb";
         });
       in {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
-          fracturedb = fracturedb;
+          fdb = fdb;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -65,33 +69,33 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          fracturedb-clippy = craneLib.cargoClippy (commonArgs // {
+          fdb-clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           });
 
-          fracturedb-doc =
+          fdb-doc =
             craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
 
           # Check formatting
-          fracturedb-fmt = craneLib.cargoFmt { inherit src; };
+          fdb-fmt = craneLib.cargoFmt { inherit src; };
 
-          fracturedb-toml-fmt = craneLib.taploFmt {
+          fdb-toml-fmt = craneLib.taploFmt {
             src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
             # taplo arguments can be further customized below as needed
             # taploExtraArgs = "--config ./taplo.toml";
           };
 
           # Audit dependencies
-          fracturedb-audit = craneLib.cargoAudit { inherit src advisory-db; };
+          fdb-audit = craneLib.cargoAudit { inherit src advisory-db; };
 
           # Audit licenses
-          fracturedb-deny = craneLib.cargoDeny { inherit src; };
+          fdb-deny = craneLib.cargoDeny { inherit src; };
 
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on `my-crate` if you do not want
           # the tests to run twice
-          fracturedb-nextest = craneLib.cargoNextest (commonArgs // {
+          fdb-nextest = craneLib.cargoNextest (commonArgs // {
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
@@ -99,9 +103,9 @@
           });
         };
 
-        packages = { default = fracturedb; };
+        packages = { default = fdb; };
 
-        apps.default = flake-utils.lib.mkApp { drv = fracturedb; };
+        apps.default = flake-utils.lib.mkApp { drv = fdb; };
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.

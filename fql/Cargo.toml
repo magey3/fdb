@@ -1,0 +1,15 @@
+[package]
+name = "fql"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+nom.workspace = true
+nom-language.workspace = true

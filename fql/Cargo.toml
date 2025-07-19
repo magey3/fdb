@@ -11,5 +11,7 @@ version.workspace = true
 path = "lib.rs"
 
 [dependencies]
-nom.workspace = true
-nom-language.workspace = true
+chumsky.workspace = true
+miette.workspace = true
+num.workspace = true
+thiserror.workspace = true

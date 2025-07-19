@@ -15,12 +15,6 @@ pub enum Visibility {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Type {
-    Int,
-    String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum Expr<'src> {
     // atom
     String(&'src str),
@@ -35,6 +29,8 @@ pub enum Expr<'src> {
     FieldAccess(Box<Spanned<Self>>, Box<Spanned<Self>>),
     Pipe(Box<Spanned<Self>>, Box<Spanned<Self>>),
     Application(Box<Spanned<Self>>, Box<Spanned<Self>>),
+
+    Lambda(Vec<Spanned<&'src str>>, Box<Spanned<Self>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,16 +40,34 @@ pub struct TypeAnnotated<'src> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Query<'src> {
-    visibility: Visibility,
+pub struct Function<'src> {
     name: &'src str,
-    params: Vec<TypeAnnotated<'src>>,
-    expr: Box<Expr<'src>>,
+    params: Vec<&'src str>,
+    expr: Box<Spanned<Expr<'src>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Type<'src> {
+    Named(&'src str),
+    Function(Box<Spanned<Self>>, Box<Spanned<Self>>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeAnnotation<'src> {
+    name: &'src str,
+    ty: Box<Spanned<Type<'src>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleExport<'src> {
+    names: Vec<&'src str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TopLevel<'src> {
-    Query(Query<'src>),
+    ModuleExport(ModuleExport<'src>),
+    TypeAnnotation(TypeAnnotation<'src>),
+    Function(Function<'src>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,13 +85,15 @@ pub enum Token<'src> {
     Pipe,
     Equals,
 
+    Arrow,
+    DoubleColon,
+
     Multiplication,
     Division,
     Addition,
     Subtraction,
 
     Public,
-    Query,
     Fn,
 }
 
@@ -123,7 +139,8 @@ fn lex<'src>()
     let symbols = choice((
         just("pub").to(Token::Public),
         just("fn").to(Token::Fn),
-        just("query").to(Token::Query),
+        just("->").to(Token::Arrow),
+        just("::").to(Token::DoubleColon),
         just("|>").to(Token::Pipe),
         just('=').to(Token::Equals),
         just('.').to(Token::Period),
@@ -164,12 +181,23 @@ where
             Token::Ident(i) => Expr::Ident(i),
             Token::Number(n) => Expr::Number(n),
         }
-        .map_with(|expr, e| Spanned(expr, e.span()))
-        .or(expr
-            .clone()
-            .delimited_by(just(Token::LeftParen), just(Token::RightParen)));
+        .map_with(|expr, e| Spanned(expr, e.span()));
 
-        atom.pratt((
+        let parenthesised = expr
+            .clone()
+            .delimited_by(just(Token::LeftParen), just(Token::RightParen));
+
+        let ident = select! { Token::Ident(i) => i }.map_with(|i, e| Spanned(i, e.span()));
+
+        let lambda = just(Token::Fn)
+            .ignore_then(ident.repeated().collect::<Vec<_>>())
+            .then_ignore(just(Token::Equals))
+            .then(expr.clone())
+            .map_with(|(params, expr), e| Spanned(Expr::Lambda(params, Box::new(expr)), e.span()));
+
+        let atoms = choice((parenthesised, lambda, atom));
+
+        atoms.pratt((
             infix(left(5), just(Token::Multiplication), |lhs, _, rhs, e| {
                 Spanned(Expr::Subtraction(Box::new(lhs), Box::new(rhs)), e.span())
             }),
@@ -182,7 +210,7 @@ where
             infix(left(4), just(Token::Addition), |lhs, _, rhs, e| {
                 Spanned(Expr::Addition(Box::new(lhs), Box::new(rhs)), e.span())
             }),
-            infix(left(3), just(Token::Addition), |lhs, _, rhs, e| {
+            infix(left(3), just(Token::Period), |lhs, _, rhs, e| {
                 Spanned(Expr::FieldAccess(Box::new(lhs), Box::new(rhs)), e.span())
             }),
             infix(left(2), empty(), |lhs, _, rhs, e| {
@@ -195,6 +223,27 @@ where
     })
 }
 
+fn parse_type<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Type<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    recursive(|ty| {
+        let named = select! { Token::Ident(ident) => Type::Named(ident) }
+            .labelled("named type")
+            .map_with(|ty, e| Spanned(ty, e.span()));
+
+        let function = named
+            .then_ignore(just(Token::Arrow))
+            .then(ty)
+            .map_with(|(lhs, rhs), e| {
+                Spanned(Type::Function(Box::new(lhs), Box::new(rhs)), e.span())
+            });
+
+        function.or(named)
+    })
+}
+
 fn parse_toplevel<'tokens, 'src: 'tokens, I>()
 -> impl Parser<'tokens, I, Vec<Spanned<TopLevel<'src>>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
 where
@@ -202,42 +251,45 @@ where
 {
     let ident = select! { Token::Ident(ident) => ident }.labelled("identifier");
 
-    let type_annotated = ident
-        .then_ignore(just(Token::Colon))
-        .then(ident)
-        .map(|(ident, ty)| TypeAnnotated { ident, ty });
-
-    let query = just(Token::Public)
-        .or_not()
-        .then_ignore(just(Token::Query))
-        .then(ident)
-        .then(
-            type_annotated
+    let module_export = just(Token::Public)
+        .ignore_then(
+            ident
                 .separated_by(just(Token::Comma))
                 .allow_trailing()
-                .collect()
-                .delimited_by(just(Token::LeftParen), just(Token::RightParen)),
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .map(|x| ModuleExport { names: x }),
         )
+        .then_ignore(just(Token::Semicolon))
+        .map(TopLevel::ModuleExport);
+
+    let type_annotation = ident
+        .then_ignore(just(Token::DoubleColon))
+        .then(parse_type())
+        .then_ignore(just(Token::Semicolon))
+        .map(|(name, ty)| {
+            TopLevel::TypeAnnotation(TypeAnnotation {
+                name,
+                ty: Box::new(ty),
+            })
+        });
+
+    let query = ident
+        .then(ident.repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::Equals))
         .then(parse_expr())
         .then_ignore(just(Token::Semicolon))
-        .map(|(((is_pub, ident), types), Spanned(expr, span))| {
-            Spanned(
-                Query {
-                    visibility: match is_pub {
-                        Some(_) => Visibility::Public,
-                        None => Visibility::Private,
-                    },
-                    name: ident,
-                    params: types,
-                    expr: Box::new(expr),
-                },
-                span,
-            )
-        });
+        .map(|((name, params), expr)| Function {
+            name,
+            params,
+            expr: Box::new(expr),
+        })
+        .map(TopLevel::Function);
 
-    query
-        .map_with(|q, span| Spanned(TopLevel::Query(q.0), span.span()))
+    let top_level = choice((module_export, type_annotation, query));
+
+    top_level
+        .map_with(|q, span| Spanned(q, span.span()))
         .repeated()
         .collect()
 }
@@ -261,10 +313,10 @@ pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors
         all_errors.extend(parse_errors.into_iter().map(|x| x.into()));
 
         // If we have no errors at all, return the parsed result
-        if all_errors.is_empty() {
-            if let Some(parsed) = result {
-                return Ok(parsed.into_iter().map(|spanned| spanned.0).collect());
-            }
+        if all_errors.is_empty()
+            && let Some(parsed) = result
+        {
+            return Ok(parsed.into_iter().map(|spanned| spanned.0).collect());
         }
     }
 
@@ -294,29 +346,59 @@ mod test {
     }
 
     #[test]
+    fn test_parse_type() {
+        use Type::*;
+        let expected = spanned(Function(
+            Box::new(spanned(Named("Uuid"))),
+            Box::new(spanned(Function(
+                Box::new(spanned(Named("Int"))),
+                Box::new(spanned(Named("String"))),
+            ))),
+        ));
+
+        let src = "Uuid -> Int -> String";
+        let tokens = lex().parse(src).unwrap();
+
+        let res = parse_type()
+            .parse(
+                tokens
+                    .as_slice()
+                    .map((src.len()..src.len()).into(), |Spanned(t, s)| (t, s)),
+            )
+            .unwrap();
+
+        assert_eq!(expected, res);
+    }
+
+    #[test]
     fn basic_lexing() {
         let src = r#"
-            pub query foo(a : Int, b: String) = "hello", 42;
+            pub get_messages;
+            get_messages :: Uuid -> Int -> String;
+            get_messages user_id page = "hello" |> process 42;
             // comment
             bar |> baz
         "#;
 
         let expected = vec![
             Token::Public,
-            Token::Query,
-            Token::Ident("foo"),
-            Token::LeftParen,
-            Token::Ident("a"),
-            Token::Colon,
+            Token::Ident("get_messages"),
+            Token::Semicolon,
+            Token::Ident("get_messages"),
+            Token::DoubleColon,
+            Token::Ident("Uuid"),
+            Token::Arrow,
             Token::Ident("Int"),
-            Token::Comma,
-            Token::Ident("b"),
-            Token::Colon,
+            Token::Arrow,
             Token::Ident("String"),
-            Token::RightParen,
+            Token::Semicolon,
+            Token::Ident("get_messages"),
+            Token::Ident("user_id"),
+            Token::Ident("page"),
             Token::Equals,
             Token::String("hello"),
-            Token::Comma,
+            Token::Pipe,
+            Token::Ident("process"),
             Token::Number(42),
             Token::Semicolon,
             Token::Ident("bar"),
@@ -333,37 +415,14 @@ mod test {
     }
 
     #[test]
-    fn toplevel() {
-        let src = r#"
-            pub query foo(a: Int, b: String) = a b |> b;
-        "#;
+    fn module_export() {
+        let src = "pub get_messages, another_function;";
 
-        let expected_query = Query {
-            visibility: Visibility::Public,
-            name: "foo",
-            params: vec![
-                TypeAnnotated {
-                    ident: "a",
-                    ty: "Int",
-                },
-                TypeAnnotated {
-                    ident: "b",
-                    ty: "String",
-                },
-            ],
-            expr: Box::new(Expr::Pipe(
-                Box::new(spanned(Expr::Application(
-                    Box::new(spanned(Expr::Ident("a"))),
-                    Box::new(spanned(Expr::Ident("b"))),
-                ))),
-                Box::new(spanned(Expr::Ident("b"))),
-            )),
-        };
-
-        let expected = vec![Spanned(TopLevel::Query(expected_query), empty_span())];
+        let expected = vec![spanned(TopLevel::ModuleExport(ModuleExport {
+            names: vec!["get_messages", "another_function"],
+        }))];
 
         let tokens = lex().parse(src).unwrap();
-
         let result = parse_toplevel()
             .parse(
                 tokens
@@ -373,5 +432,105 @@ mod test {
             .unwrap();
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn type_annotation() {
+        let src = "get_messages :: Uuid -> Int -> String;";
+
+        let expected = vec![spanned(TopLevel::TypeAnnotation(TypeAnnotation {
+            name: "get_messages",
+            ty: Box::new(spanned(Type::Function(
+                Box::new(spanned(Type::Named("Uuid"))),
+                Box::new(spanned(Type::Function(
+                    Box::new(spanned(Type::Named("Int"))),
+                    Box::new(spanned(Type::Named("String"))),
+                ))),
+            ))),
+        }))];
+
+        let tokens = lex().parse(src).unwrap();
+        let result = parse_toplevel()
+            .parse(
+                tokens
+                    .as_slice()
+                    .map((src.len()..src.len()).into(), |Spanned(t, s)| (t, s)),
+            )
+            .unwrap();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn function_definition() {
+        let src = "get_messages user_id page = user_id page |> process;";
+
+        let expected_function = Function {
+            name: "get_messages",
+            params: vec!["user_id", "page"],
+            expr: Box::new(spanned(Expr::Pipe(
+                Box::new(spanned(Expr::Application(
+                    Box::new(spanned(Expr::Ident("user_id"))),
+                    Box::new(spanned(Expr::Ident("page"))),
+                ))),
+                Box::new(spanned(Expr::Ident("process"))),
+            ))),
+        };
+
+        let expected = vec![spanned(TopLevel::Function(expected_function))];
+
+        let tokens = lex().parse(src).unwrap();
+        let result = parse_toplevel()
+            .parse(
+                tokens
+                    .as_slice()
+                    .map((src.len()..src.len()).into(), |Spanned(t, s)| (t, s)),
+            )
+            .unwrap();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn complete_example() {
+        let src = r#"
+            pub get_messages;
+            
+            get_messages :: Uuid -> Int -> String;
+            get_messages user_id page = messages
+                |> filter (fn x = x.id + user_id)
+                |> process page;
+        "#;
+
+        // This should parse without errors
+        let result = parse(src);
+        assert!(result.is_ok());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.len(), 3); // export, type annotation, function
+    }
+
+    #[test]
+    fn arithmetic_expressions() {
+        let src = "calc x y = x + y * 2 - 1;";
+
+        let tokens = lex().parse(src).unwrap();
+        let result = parse_toplevel()
+            .parse(
+                tokens
+                    .as_slice()
+                    .map((src.len()..src.len()).into(), |Spanned(t, s)| (t, s)),
+            )
+            .unwrap();
+
+        // Should parse as: x + (y * 2) - 1 due to operator precedence
+        assert_eq!(result.len(), 1);
+
+        if let TopLevel::Function(func) = &result[0].0 {
+            assert_eq!(func.name, "calc");
+            assert_eq!(func.params, vec!["x", "y"]);
+        } else {
+            panic!("Expected function");
+        }
     }
 }

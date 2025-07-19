@@ -17,7 +17,7 @@ pub struct CompilerErrors<'src> {
 impl<'src> CompilerErrors<'src> {
     pub fn new(src: &'src str, errors: impl Into<Vec<CompileError>>) -> Self {
         Self {
-            src: src.as_ref(),
+            src,
             errors: errors.into(),
         }
     }

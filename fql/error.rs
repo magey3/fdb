@@ -2,7 +2,7 @@ use chumsky::{error::Rich, span::Span as _};
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::parser::{Span, Token};
+use crate::ast::{Span, Token};
 
 #[derive(Error, Diagnostic, Debug)]
 #[error("Errors occured during compilation")]
@@ -77,7 +77,7 @@ impl<'src> From<Rich<'src, char, Span>> for CompileError {
             chumsky::error::RichReason::ExpectedFound { expected, found } => {
                 let expected = expected
                     .iter()
-                    .map(|x| x.to_string())
+                    .map(|x: &chumsky::error::RichPattern<'_, _>| x.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 let found = found

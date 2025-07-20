@@ -1,8 +1,41 @@
-pub get_messages;
+// Module exports
+pub get_messages, process_data, calculate_stats;
 
+// Type annotations
 get_messages :: Uuid -> Int -> String;
+process_data :: String -> Int -> Bool;
+calculate_stats :: Int -> Int -> Int;
+
+// Basic function with arithmetic
+calculate_stats x y = x + y * 2 - 1;
+
+// Function with field access
 get_messages user_id page = messages
 	|> filter (fn x = x.id == user_id)
 	|> skip PAGE_SIZE * page
 	|> take PAGE_SIZE
-	|> map (fn x = (x.id, x.content, x.timestamp));
+	|> map (fn x = x.content);
+
+// Logic operators
+process_data input threshold = 
+	input != "" && input.len > threshold || !is_empty input;
+
+// Complex nested expressions
+complex_calc a b c = 
+	(a + b) * c / 2 == 42 && 
+	a.field.subfield > 0 || 
+	!(b < 0);
+
+// Function application
+apply_func x = process x |> transform |> validate;
+
+// Lambda with multiple parameters
+lambda_test = fn x y = x + y * 2;
+
+// String and number literals
+string_test = "hello world";
+number_test = 42;
+
+// Comments work too
+// This is a comment
+commented_func = 123; // inline comment

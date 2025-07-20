@@ -9,9 +9,9 @@ use crate::ast::{Span, Token};
 #[diagnostic()]
 pub struct CompilerErrors<'src> {
     #[source_code]
-    src: &'src str,
+    pub src: &'src str,
     #[related]
-    errors: Vec<CompileError>,
+    pub errors: Vec<CompileError>,
 }
 
 impl<'src> CompilerErrors<'src> {
@@ -71,11 +71,31 @@ pub enum ParsingError {
     },
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Clone, Error, Diagnostic, Debug)]
 #[error("Semantic error")]
 #[diagnostic()]
 pub enum SemanticError {
-    // Placeholder for future semantic error variants
+    #[error("Conflicting type annotation")]
+    #[diagnostic(
+        code(types::conflicting_type_annotation),
+        help("Consider removing the duplicate type annotation")
+    )]
+    ConflictingTypeAnnotation {
+        #[label("duplicate here")]
+        annotation: SourceSpan,
+        #[label("...of this annotation")]
+        duplicate_of: SourceSpan,
+    },
+
+    #[error("Attempted to annotate the type of a function that does not exist")]
+    #[diagnostic(
+        code(types::annotated_missing_function),
+        help("Consider removing the annotation...")
+    )]
+    AnnotatedMissingFunction {
+        #[label("...here")]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Error, Diagnostic, Debug)]

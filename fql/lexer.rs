@@ -15,18 +15,22 @@ pub fn lex<'src>()
         .then_ignore(just('"'))
         .map(Token::String);
 
-    let ident = text::ascii::ident().map(Token::Ident);
+    let ident = text::ascii::ident().map(|x| match x {
+        "pub" => Token::Public,
+        "fn" => Token::Fn,
+        "let" => Token::Let,
+        "in" => Token::In,
+        s => Token::Ident(s),
+    });
 
-    let symbols = choice((
-        // keywords
-        just("pub").to(Token::Public),
-        just("fn").to(Token::Fn),
-        // types
+    let types = choice((
         just("->").to(Token::Arrow),
         just("::").to(Token::DoubleColon),
-        // control flow
-        just("|>").to(Token::Pipe),
-        // logic
+    ));
+
+    let control_flow = choice((just("|>").to(Token::Pipe),));
+
+    let logic = choice((
         just("==").to(Token::Equality),
         just("!=").to(Token::NotEquality),
         just("<=").to(Token::LessThanOrEqual),
@@ -36,12 +40,16 @@ pub fn lex<'src>()
         just("&&").to(Token::And),
         just("||").to(Token::Or),
         just('!').to(Token::Not),
-        // arithmetic
+    ));
+
+    let arithmetic = choice((
         just('+').to(Token::Addition),
         just('-').to(Token::Subtraction),
         just('*').to(Token::Multiplication),
         just('/').to(Token::Division),
-        // misc
+    ));
+
+    let misc = choice((
         just('=').to(Token::Equals),
         just('.').to(Token::Period),
         just(',').to(Token::Comma),
@@ -50,6 +58,8 @@ pub fn lex<'src>()
         just('(').to(Token::LeftParen),
         just(')').to(Token::RightParen),
     ));
+
+    let symbols = choice((types, control_flow, logic, arithmetic, misc));
 
     let token = choice((number, string, symbols, ident));
 

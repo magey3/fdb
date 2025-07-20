@@ -15,8 +15,18 @@
     };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, advisory-db, fenix, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      crane,
+      flake-utils,
+      advisory-db,
+      fenix,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
@@ -24,8 +34,7 @@
 
         fenixPkgs = fenix.packages.${system};
 
-        craneLib =
-          (crane.mkLib pkgs).overrideToolchain fenixPkgs.default.toolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain fenixPkgs.default.toolchain;
         src = craneLib.cleanCargoSource ./.;
 
         # Common arguments can be set here to avoid repeating them later
@@ -35,7 +44,8 @@
 
           buildInputs = [
             # Add additional build inputs here
-          ] ++ lib.optionals pkgs.stdenv.isDarwin [
+          ]
+          ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
           ];
@@ -53,12 +63,16 @@
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        fdb = craneLib.buildPackage (individualCrateArgs // {
-          inherit cargoArtifacts;
-          pname = "fdb";
-          cargoExtraArgs = "-p fdb";
-        });
-      in {
+        fdb = craneLib.buildPackage (
+          individualCrateArgs
+          // {
+            inherit cargoArtifacts;
+            pname = "fdb";
+            cargoExtraArgs = "-p fdb";
+          }
+        );
+      in
+      {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
           fdb = fdb;
@@ -69,13 +83,15 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          fdb-clippy = craneLib.cargoClippy (commonArgs // {
-            inherit cargoArtifacts;
-            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-          });
+          fdb-clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
 
-          fdb-doc =
-            craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
+          fdb-doc = craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
 
           # Check formatting
           fdb-fmt = craneLib.cargoFmt { inherit src; };
@@ -95,15 +111,20 @@
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on `my-crate` if you do not want
           # the tests to run twice
-          fdb-nextest = craneLib.cargoNextest (commonArgs // {
-            inherit cargoArtifacts;
-            partitions = 1;
-            partitionType = "count";
-            cargoNextestPartitionsExtraArgs = "--no-tests=pass";
-          });
+          fdb-nextest = craneLib.cargoNextest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              partitions = 1;
+              partitionType = "count";
+              cargoNextestPartitionsExtraArgs = "--no-tests=pass";
+            }
+          );
         };
 
-        packages = { default = fdb; };
+        packages = {
+          default = fdb;
+        };
 
         apps.default = flake-utils.lib.mkApp { drv = fdb; };
 
@@ -115,7 +136,11 @@
           # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
 
           # Extra inputs can be added here; cargo and rustc are provided by default.
-          packages = [ pkgs.rust-analyzer pkgs.lldb ];
+          packages = [
+            pkgs.rust-analyzer
+            pkgs.lldb
+          ];
         };
-      });
+      }
+    );
 }

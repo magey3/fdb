@@ -1,10 +1,10 @@
-use crate::ast::{Spanned, TopLevel};
+use crate::ast::{Ast, Spanned};
 use crate::error::{CompileError, CompilerErrors};
 use crate::lexer::lex;
 use crate::parsers::parse_toplevel;
 use chumsky::{Parser, prelude::*};
 
-pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors<'src>> {
+pub fn parse<'src>(src: &'src str) -> Result<Ast<'src>, CompilerErrors<'src>> {
     let (tokens, lex_errors) = lex().parse(src).into_output_errors();
 
     let mut all_errors: Vec<CompileError> =
@@ -27,7 +27,7 @@ pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors
         if all_errors.is_empty()
             && let Some(parsed) = result
         {
-            return Ok(parsed.into_iter().map(|spanned| spanned.0).collect());
+            return Ok(Ast { top_level: parsed });
         }
     }
 
@@ -38,6 +38,7 @@ pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ast::TopLevel;
     use crate::ast::{Expr, Function, ModuleExport, Span, Token, Type, TypeAnnotation};
 
     fn empty_span() -> Span {
@@ -180,13 +181,14 @@ mod test {
         let expected_function = Function {
             name: "get_messages",
             params: vec!["user_id", "page"],
-            expr: Box::new(spanned(Expr::Pipe(
-                Box::new(spanned(Expr::Application(
+            expr: Box::new(spanned(Expr::Infix {
+                op: crate::ast::InfixOp::Pipe,
+                left: Box::new(spanned(Expr::Application(
                     Box::new(spanned(Expr::Ident("user_id"))),
                     Box::new(spanned(Expr::Ident("page"))),
                 ))),
-                Box::new(spanned(Expr::Ident("process"))),
-            ))),
+                right: Box::new(spanned(Expr::Ident("process"))),
+            })),
         };
 
         let expected = vec![spanned(TopLevel::Function(expected_function))];
@@ -219,7 +221,7 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 3); // export, type annotation, function
+        assert_eq!(parsed.top_level.len(), 3); // export, type annotation, function
     }
 
     #[test]
@@ -300,7 +302,7 @@ mod test {
 
         let parsed = result.unwrap();
         // Should have: 1 export (with 3 names), 3 type annotations, 9 functions = 13 total
-        assert_eq!(parsed.len(), 13);
+        assert_eq!(parsed.top_level.len(), 13);
     }
 
     #[test]
@@ -310,9 +312,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::ModuleExport(export) = &parsed[0] {
+        if let TopLevel::ModuleExport(export) = &parsed.top_level[0].0 {
             assert_eq!(export.names, vec!["func1", "func2", "func3"]);
         } else {
             panic!("Expected module export");
@@ -326,9 +328,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::TypeAnnotation(ann) = &parsed[0] {
+        if let TopLevel::TypeAnnotation(ann) = &parsed.top_level[0].0 {
             assert_eq!(ann.name, "my_func");
         } else {
             panic!("Expected type annotation");
@@ -342,9 +344,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "calc");
             assert_eq!(func.params, vec!["x", "y"]);
         } else {
@@ -359,9 +361,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "logic_test");
             assert_eq!(func.params, vec!["a", "b"]);
         } else {
@@ -376,9 +378,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "field_test");
             assert_eq!(func.params, vec!["obj"]);
         } else {
@@ -393,9 +395,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "apply_test");
             assert_eq!(func.params, vec!["x"]);
         } else {
@@ -410,9 +412,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "pipe_test");
             assert_eq!(func.params, vec!["x"]);
         } else {
@@ -427,9 +429,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "lambda_test");
             assert_eq!(func.params, vec![] as Vec<&str>);
         } else {
@@ -444,9 +446,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "paren_test");
             assert_eq!(func.params, vec!["x"]);
         } else {
@@ -461,9 +463,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "string_test");
             assert_eq!(func.params, vec![] as Vec<&str>);
         } else {
@@ -478,9 +480,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "number_test");
             assert_eq!(func.params, vec![] as Vec<&str>);
         } else {
@@ -498,9 +500,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "commented_func");
             assert_eq!(func.params, vec![] as Vec<&str>);
         } else {
@@ -515,9 +517,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "complex");
             assert_eq!(func.params, vec!["a", "b", "c"]);
         } else {
@@ -532,9 +534,9 @@ mod test {
         assert!(result.is_ok());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.top_level.len(), 1);
 
-        if let TopLevel::Function(func) = &parsed[0] {
+        if let TopLevel::Function(func) = &parsed.top_level[0].0 {
             assert_eq!(func.name, "compare");
             assert_eq!(func.params, vec!["a", "b"]);
         } else {

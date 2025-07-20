@@ -33,49 +33,139 @@ where
             .then(expr.clone())
             .map_with(|(params, expr), e| Spanned(Expr::Lambda(params, Box::new(expr)), e.span()));
 
-        let atoms = choice((parenthesised, lambda, atom));
+        let let_binding = just(Token::Let)
+            .ignore_then(ident)
+            .then_ignore(just(Token::Equals))
+            .then(expr.clone())
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .map_with(|((id, e1), e2), e| {
+                Spanned(
+                    Expr::Let {
+                        ident: id,
+                        value: Box::new(e1),
+                        expr: Box::new(e2),
+                    },
+                    e.span(),
+                )
+            });
+
+        let atoms = choice((parenthesised, lambda, let_binding, atom));
 
         atoms.pratt((
             // function application and field access
             infix(left(9), just(Token::Period), |lhs, _, rhs, e| {
-                Spanned(Expr::FieldAccess(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::FieldAccess,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(8), empty(), |lhs, _, rhs, e| {
                 Spanned(Expr::Application(Box::new(lhs), Box::new(rhs)), e.span())
             }),
             // unary
             prefix(7, just(Token::Not), |_, a, e| {
-                Spanned(Expr::Not(Box::new(a)), e.span())
+                Spanned(
+                    Expr::Prefix {
+                        op: crate::ast::PrefixOp::Not,
+                        expr: Box::new(a),
+                    },
+                    e.span(),
+                )
             }),
             // arithmetic
             infix(left(6), just(Token::Multiplication), |lhs, _, rhs, e| {
-                Spanned(Expr::Multiplication(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Multiplication,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(6), just(Token::Division), |lhs, _, rhs, e| {
-                Spanned(Expr::Division(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Division,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(5), just(Token::Subtraction), |lhs, _, rhs, e| {
-                Spanned(Expr::Subtraction(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Subtraction,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(5), just(Token::Addition), |lhs, _, rhs, e| {
-                Spanned(Expr::Addition(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Addition,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             // logic
             infix(left(4), just(Token::Equality), |lhs, _, rhs, e| {
-                Spanned(Expr::Equality(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Equality,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(4), just(Token::NotEquality), |lhs, _, rhs, e| {
-                Spanned(Expr::NotEquality(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::NotEquality,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(4), just(Token::LessThan), |lhs, _, rhs, e| {
-                Spanned(Expr::LessThan(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::LessThan,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(4), just(Token::GreaterThan), |lhs, _, rhs, e| {
-                Spanned(Expr::GreaterThan(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::GreaterThan,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(4), just(Token::LessThanOrEqual), |lhs, _, rhs, e| {
                 Spanned(
-                    Expr::LessThanOrEqual(Box::new(lhs), Box::new(rhs)),
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::LessThanOrEqual,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
                     e.span(),
                 )
             }),
@@ -84,20 +174,45 @@ where
                 just(Token::GreaterThanOrEqual),
                 |lhs, _, rhs, e| {
                     Spanned(
-                        Expr::GreaterThanOrEqual(Box::new(lhs), Box::new(rhs)),
+                        Expr::Infix {
+                            op: crate::ast::InfixOp::GreaterThanOrEqual,
+                            left: Box::new(lhs),
+                            right: Box::new(rhs),
+                        },
                         e.span(),
                     )
                 },
             ),
             infix(left(3), just(Token::And), |lhs, _, rhs, e| {
-                Spanned(Expr::And(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::And,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             infix(left(2), just(Token::Or), |lhs, _, rhs, e| {
-                Spanned(Expr::Or(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Or,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
             // other
             infix(left(1), just(Token::Pipe), |lhs, _, rhs, e| {
-                Spanned(Expr::Pipe(Box::new(lhs), Box::new(rhs)), e.span())
+                Spanned(
+                    Expr::Infix {
+                        op: crate::ast::InfixOp::Pipe,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    e.span(),
+                )
             }),
         ))
     })

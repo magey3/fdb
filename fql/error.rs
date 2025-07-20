@@ -24,7 +24,7 @@ impl<'src> CompilerErrors<'src> {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-pub enum CompileError {
+pub enum ParsingError {
     #[error("Missing semicolon")]
     #[diagnostic(
         code(parser::missing_semicolon),
@@ -71,6 +71,23 @@ pub enum CompileError {
     },
 }
 
+#[derive(Error, Diagnostic, Debug)]
+#[error("Semantic error")]
+#[diagnostic()]
+pub enum SemanticError {
+    // Placeholder for future semantic error variants
+}
+
+#[derive(Error, Diagnostic, Debug)]
+pub enum CompileError {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Parsing(#[from] ParsingError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Semantic(#[from] SemanticError),
+}
+
 impl<'src> From<Rich<'src, char, Span>> for CompileError {
     fn from(value: Rich<'src, char, Span>) -> Self {
         match value.reason() {
@@ -84,11 +101,12 @@ impl<'src> From<Rich<'src, char, Span>> for CompileError {
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| "nothing".into());
 
-                CompileError::UnexpectedToken {
+                ParsingError::UnexpectedToken {
                     expected,
                     found,
                     span: span_to_miette(*value.span()),
                 }
+                .into()
             }
             chumsky::error::RichReason::Custom(_) => todo!(),
         }
@@ -114,16 +132,18 @@ impl<'src> From<Rich<'src, Token<'src>, Span>> for CompileError {
                     .map(|token| format!("{token:?}"))
                     .unwrap_or_else(|| "end of input".to_string());
 
-                CompileError::UnexpectedToken {
+                ParsingError::UnexpectedToken {
                     expected,
                     found,
                     span: span_to_miette(span),
                 }
+                .into()
             }
-            chumsky::error::RichReason::Custom(msg) => CompileError::InvalidSyntax {
+            chumsky::error::RichReason::Custom(msg) => ParsingError::InvalidSyntax {
                 span: span_to_miette(span),
                 help: Some(msg.to_string()),
-            },
+            }
+            .into(),
         }
     }
 }

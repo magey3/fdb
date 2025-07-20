@@ -7,7 +7,8 @@ use chumsky::{Parser, prelude::*};
 pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors<'src>> {
     let (tokens, lex_errors) = lex().parse(src).into_output_errors();
 
-    let mut all_errors: Vec<CompileError> = lex_errors.into_iter().map(|x| x.into()).collect();
+    let mut all_errors: Vec<CompileError> =
+        lex_errors.into_iter().map(CompileError::from).collect();
 
     // If we have tokens (even with some lex errors), try to parse them
     if let Some(tokens) = tokens {
@@ -20,7 +21,7 @@ pub fn parse<'src>(src: &'src str) -> Result<Vec<TopLevel<'src>>, CompilerErrors
             .into_output_errors();
 
         // Add parsing errors to our collection
-        all_errors.extend(parse_errors.into_iter().map(|x| x.into()));
+        all_errors.extend(parse_errors.into_iter().map(CompileError::from));
 
         // If we have no errors at all, return the parsed result
         if all_errors.is_empty()

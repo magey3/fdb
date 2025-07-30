@@ -9,9 +9,9 @@ use crate::ast::{
 };
 
 pub fn parse_expr<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Expr>, extra::Err<Rich<'tokens, Token, Span>>> + Clone
 where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+    I: ValueInput<'tokens, Token = Token, Span = Span>,
 {
     recursive(|expr| {
         let atom = select! {
@@ -219,9 +219,9 @@ where
 }
 
 pub fn parse_type<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Type<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+-> impl Parser<'tokens, I, Spanned<Type>, extra::Err<Rich<'tokens, Token, Span>>>
 where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+    I: ValueInput<'tokens, Token = Token, Span = Span>,
 {
     recursive(|ty| {
         let named = select! { Token::Ident(ident) => Type::Named(ident) }
@@ -239,10 +239,10 @@ where
     })
 }
 
-pub fn parse_toplevel<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Vec<Spanned<TopLevel<'src>>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+pub fn parse_toplevel<'tokens, I>()
+-> impl Parser<'tokens, I, Vec<Spanned<TopLevel>>, extra::Err<Rich<'tokens, Token, Span>>>
 where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+    I: ValueInput<'tokens, Token = Token, Span = Span>,
 {
     let ident = select! { Token::Ident(ident) => ident }.labelled("identifier");
 

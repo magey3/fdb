@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 
-use crate::ast::{Span, Spanned, Token};
+use crate::{
+    ast::{Span, Spanned, Token},
+    ctx::CompileContext,
+};
 
-pub fn lex<'src>()
--> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, extra::Err<Rich<'src, char, Span>>> {
+pub fn lex<'src>(
+    ctx: &CompileContext,
+) -> impl Parser<'src, &'src str, Vec<Spanned<Token>>, extra::Err<Rich<'src, char, Span>>> {
     let number = text::int(10)
         .to_slice()
         .from_str()
@@ -13,14 +17,14 @@ pub fn lex<'src>()
     let string = just('"')
         .ignore_then(none_of('"').repeated().to_slice())
         .then_ignore(just('"'))
-        .map(Token::String);
+        .map(|x| Token::String(ctx.intern(x)));
 
     let ident = text::ascii::ident().map(|x| match x {
         "pub" => Token::Public,
         "fn" => Token::Fn,
         "let" => Token::Let,
         "in" => Token::In,
-        s => Token::Ident(s),
+        s => Token::Ident(ctx.intern(s)),
     });
 
     let types = choice((

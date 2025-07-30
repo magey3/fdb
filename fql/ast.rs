@@ -1,11 +1,12 @@
-use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 use chumsky::span::SimpleSpan;
 
+use crate::ctx::Symbol;
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct Ast<'src> {
-    pub top_level: Vec<Spanned<TopLevel<'src>>>,
+pub struct Ast {
+    pub top_level: Vec<Spanned<TopLevel>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,10 +33,10 @@ pub enum PrefixOp {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Expr<'src> {
+pub enum Expr {
     // atom
-    String(&'src str),
-    Ident(&'src str),
+    String(Symbol),
+    Ident(Symbol),
     Number(u32),
 
     Infix {
@@ -48,15 +49,15 @@ pub enum Expr<'src> {
         expr: Box<Spanned<Self>>,
     },
     Application(Box<Spanned<Self>>, Box<Spanned<Self>>),
-    Lambda(Vec<Spanned<&'src str>>, Box<Spanned<Self>>),
+    Lambda(Vec<Spanned<Symbol>>, Box<Spanned<Self>>),
     Let {
-        ident: Spanned<&'src str>,
+        ident: Spanned<Symbol>,
         value: Box<Spanned<Self>>,
         expr: Box<Spanned<Self>>,
     },
 }
 
-impl<'src> Expr<'src> {
+impl Expr {
     /// Depth-first mutable visitor.
     /// Calls `f` on every node and allows mutation of the node in-place.
     pub fn walk_mut<F>(&mut self, f: &mut F)
@@ -104,40 +105,40 @@ pub enum Visibility {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Function<'src> {
-    pub name: &'src str,
-    pub params: Vec<&'src str>,
-    pub expr: Box<Spanned<Expr<'src>>>,
+pub struct Function {
+    pub name: Symbol,
+    pub params: Vec<Symbol>,
+    pub expr: Box<Spanned<Expr>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Type<'src> {
-    Named(&'src str),
+pub enum Type {
+    Named(Symbol),
     Function(Box<Spanned<Self>>, Box<Spanned<Self>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TypeAnnotation<'src> {
-    pub name: &'src str,
-    pub ty: Box<Spanned<Type<'src>>>,
+pub struct TypeAnnotation {
+    pub name: Symbol,
+    pub ty: Box<Spanned<Type>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ModuleExport<'src> {
-    pub names: Vec<&'src str>,
+pub struct ModuleExport {
+    pub names: Vec<Symbol>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum TopLevel<'src> {
-    ModuleExport(ModuleExport<'src>),
-    TypeAnnotation(TypeAnnotation<'src>),
-    Function(Function<'src>),
+pub enum TopLevel {
+    ModuleExport(ModuleExport),
+    TypeAnnotation(TypeAnnotation),
+    Function(Function),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Token<'src> {
-    String(&'src str),
-    Ident(&'src str),
+pub enum Token {
+    String(Symbol),
+    Ident(Symbol),
     Number(u32),
 
     LeftParen,
@@ -197,147 +198,147 @@ impl<T: Clone + PartialEq> DerefMut for Spanned<T> {
     }
 }
 
-impl<'src> fmt::Display for Ast<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in &self.top_level {
-            writeln!(f, "{}", item.0)?;
-        }
-        Ok(())
-    }
-}
+// impl<'src> fmt::Display for Ast<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         for item in &self.top_level {
+//             writeln!(f, "{}", item.0)?;
+//         }
+//         Ok(())
+//     }
+// }
+//
+// impl fmt::Display for TopLevel {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             TopLevel::ModuleExport(export) => write!(f, "{export}"),
+//             TopLevel::TypeAnnotation(ann) => write!(f, "{ann}"),
+//             TopLevel::Function(func) => write!(f, "{func}"),
+//         }
+//     }
+// }
+//
+// impl<'src> fmt::Display for ModuleExport<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "pub {};", self.names.join(", "))
+//     }
+// }
+//
+// impl<'src> fmt::Display for TypeAnnotation<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{} :: {};", self.name, self.ty.0)
+//     }
+// }
+//
+// impl<'src> fmt::Display for Function<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(
+//             f,
+//             "{} {} = {};",
+//             self.name,
+//             self.params.join(" "),
+//             self.expr.0
+//         )
+//     }
+// }
+//
+// impl<'src> fmt::Display for Expr<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             Expr::String(s) => write!(f, "\"{s}\""),
+//             Expr::Ident(i) => write!(f, "{i}"),
+//             Expr::Number(n) => write!(f, "{n}"),
+//             Expr::Infix { op, left, right } => {
+//                 use InfixOp::*;
+//                 match op {
+//                     Addition => write!(f, "({} + {})", left.0, right.0),
+//                     Subtraction => write!(f, "({} - {})", left.0, right.0),
+//                     Multiplication => write!(f, "({} * {})", left.0, right.0),
+//                     Division => write!(f, "({} / {})", left.0, right.0),
+//                     FieldAccess => write!(f, "{}.{}", left.0, right.0),
+//                     Pipe => write!(f, "({} |> {})", left.0, right.0),
+//                     Equality => write!(f, "({} == {})", left.0, right.0),
+//                     NotEquality => write!(f, "({} != {})", left.0, right.0),
+//                     LessThan => write!(f, "({} < {})", left.0, right.0),
+//                     GreaterThan => write!(f, "({} > {})", left.0, right.0),
+//                     LessThanOrEqual => write!(f, "({} <= {})", left.0, right.0),
+//                     GreaterThanOrEqual => write!(f, "({} >= {})", left.0, right.0),
+//                     And => write!(f, "({} && {})", left.0, right.0),
+//                     Or => write!(f, "({} || {})", left.0, right.0),
+//                 }
+//             }
+//             Expr::Prefix { op, expr } => {
+//                 use PrefixOp::*;
+//                 match op {
+//                     Not => write!(f, "!{}", expr.0),
+//                 }
+//             }
+//             Expr::Application(a, b) => write!(f, "{} {}", a.0, b.0),
+//             Expr::Lambda(params, body) => {
+//                 let params: Vec<_> = params.iter().map(|p| p.0).collect();
+//                 write!(f, "fn {} = {}", params.join(" "), body.0)
+//             }
+//             Expr::Let { ident, value, expr } => {
+//                 write!(f, "(let {} = {} in {})", ident.0, value.0, expr.0)
+//             }
+//         }
+//     }
+// }
+//
+// impl<'src> fmt::Display for Type<'src> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             Type::Named(n) => write!(f, "{n}"),
+//             Type::Function(a, b) => write!(f, "{} -> {}", a.0, b.0),
+//         }
+//     }
+// }
 
-impl<'src> fmt::Display for TopLevel<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TopLevel::ModuleExport(export) => write!(f, "{export}"),
-            TopLevel::TypeAnnotation(ann) => write!(f, "{ann}"),
-            TopLevel::Function(func) => write!(f, "{func}"),
-        }
-    }
-}
-
-impl<'src> fmt::Display for ModuleExport<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "pub {};", self.names.join(", "))
-    }
-}
-
-impl<'src> fmt::Display for TypeAnnotation<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} :: {};", self.name, self.ty.0)
-    }
-}
-
-impl<'src> fmt::Display for Function<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} {} = {};",
-            self.name,
-            self.params.join(" "),
-            self.expr.0
-        )
-    }
-}
-
-impl<'src> fmt::Display for Expr<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expr::String(s) => write!(f, "\"{s}\""),
-            Expr::Ident(i) => write!(f, "{i}"),
-            Expr::Number(n) => write!(f, "{n}"),
-            Expr::Infix { op, left, right } => {
-                use InfixOp::*;
-                match op {
-                    Addition => write!(f, "({} + {})", left.0, right.0),
-                    Subtraction => write!(f, "({} - {})", left.0, right.0),
-                    Multiplication => write!(f, "({} * {})", left.0, right.0),
-                    Division => write!(f, "({} / {})", left.0, right.0),
-                    FieldAccess => write!(f, "{}.{}", left.0, right.0),
-                    Pipe => write!(f, "({} |> {})", left.0, right.0),
-                    Equality => write!(f, "({} == {})", left.0, right.0),
-                    NotEquality => write!(f, "({} != {})", left.0, right.0),
-                    LessThan => write!(f, "({} < {})", left.0, right.0),
-                    GreaterThan => write!(f, "({} > {})", left.0, right.0),
-                    LessThanOrEqual => write!(f, "({} <= {})", left.0, right.0),
-                    GreaterThanOrEqual => write!(f, "({} >= {})", left.0, right.0),
-                    And => write!(f, "({} && {})", left.0, right.0),
-                    Or => write!(f, "({} || {})", left.0, right.0),
-                }
-            }
-            Expr::Prefix { op, expr } => {
-                use PrefixOp::*;
-                match op {
-                    Not => write!(f, "!{}", expr.0),
-                }
-            }
-            Expr::Application(a, b) => write!(f, "{} {}", a.0, b.0),
-            Expr::Lambda(params, body) => {
-                let params: Vec<_> = params.iter().map(|p| p.0).collect();
-                write!(f, "fn {} = {}", params.join(" "), body.0)
-            }
-            Expr::Let { ident, value, expr } => {
-                write!(f, "(let {} = {} in {})", ident.0, value.0, expr.0)
-            }
-        }
-    }
-}
-
-impl<'src> fmt::Display for Type<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Type::Named(n) => write!(f, "{n}"),
-            Type::Function(a, b) => write!(f, "{} -> {}", a.0, b.0),
-        }
-    }
-}
-
-pub fn desugar<'src>(ast: &mut Ast<'src>) {
-    for toplevel in &mut ast.top_level {
-        if let TopLevel::Function(function) = &mut toplevel.0 {
-            desugar_operators(&mut function.expr)
-        }
-    }
-}
-
-pub fn desugar_operators<'src>(expr: &mut Expr<'src>) {
-    match expr {
-        Expr::Infix { op, left, right } => {
-            let op_name = match op {
-                InfixOp::Addition => "+",
-                InfixOp::Subtraction => "-",
-                InfixOp::Multiplication => "*",
-                InfixOp::Division => "/",
-                InfixOp::Equality => "==",
-                InfixOp::NotEquality => "!=",
-                InfixOp::LessThan => "<",
-                InfixOp::GreaterThan => ">",
-                InfixOp::LessThanOrEqual => "<=",
-                InfixOp::GreaterThanOrEqual => ">=",
-                InfixOp::And => "&&",
-                InfixOp::Or => "||",
-                InfixOp::FieldAccess => ".",
-                InfixOp::Pipe => "|>",
-            };
-            *expr = Expr::Application(
-                Box::new(Spanned(Expr::Ident(op_name), left.1)),
-                right.clone(),
-            );
-        }
-
-        Expr::Prefix { op, expr: inner } => {
-            let op_name = match op {
-                PrefixOp::Not => "!",
-            };
-            *expr = Expr::Application(
-                Box::new(Spanned(Expr::Ident(op_name), inner.1)),
-                inner.clone(),
-            );
-        }
-
-        _ => {
-            // Recurse into sub-expressions
-            expr.walk_mut(&mut |e| desugar_operators(e));
-        }
-    }
-}
+// pub fn desugar<'src>(ast: &mut Ast) {
+//     for toplevel in &mut ast.top_level {
+//         if let TopLevel::Function(function) = &mut toplevel.0 {
+//             desugar_operators(&mut function.expr)
+//         }
+//     }
+// }
+//
+// pub fn desugar_operators<'src>(expr: &mut Expr) {
+//     match expr {
+//         Expr::Infix { op, left, right } => {
+//             let op_name = match op {
+//                 InfixOp::Addition => "+",
+//                 InfixOp::Subtraction => "-",
+//                 InfixOp::Multiplication => "*",
+//                 InfixOp::Division => "/",
+//                 InfixOp::Equality => "==",
+//                 InfixOp::NotEquality => "!=",
+//                 InfixOp::LessThan => "<",
+//                 InfixOp::GreaterThan => ">",
+//                 InfixOp::LessThanOrEqual => "<=",
+//                 InfixOp::GreaterThanOrEqual => ">=",
+//                 InfixOp::And => "&&",
+//                 InfixOp::Or => "||",
+//                 InfixOp::FieldAccess => ".",
+//                 InfixOp::Pipe => "|>",
+//             };
+//             *expr = Expr::Application(
+//                 Box::new(Spanned(Expr::Ident(op_name), left.1)),
+//                 right.clone(),
+//             );
+//         }
+//
+//         Expr::Prefix { op, expr: inner } => {
+//             let op_name = match op {
+//                 PrefixOp::Not => "!",
+//             };
+//             *expr = Expr::Application(
+//                 Box::new(Spanned(Expr::Ident(op_name), inner.1)),
+//                 inner.clone(),
+//             );
+//         }
+//
+//         _ => {
+//             // Recurse into sub-expressions
+//             expr.walk_mut(&mut |e| desugar_operators(e));
+//         }
+//     }
+// }

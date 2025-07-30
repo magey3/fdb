@@ -12,6 +12,7 @@ path = "lib.rs"
 
 [dependencies]
 chumsky.workspace = true
+lasso.workspace = true
 miette.workspace = true
 num.workspace = true
 thiserror.workspace = true

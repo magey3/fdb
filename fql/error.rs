@@ -133,8 +133,8 @@ impl<'src> From<Rich<'src, char, Span>> for CompileError {
     }
 }
 
-impl<'src> From<Rich<'src, Token<'src>, Span>> for CompileError {
-    fn from(value: Rich<'src, Token<'src>, Span>) -> Self {
+impl<'src> From<Rich<'src, Token, Span>> for CompileError {
+    fn from(value: Rich<'src, Token, Span>) -> Self {
         let span = *value.span();
         match value.into_reason() {
             chumsky::error::RichReason::ExpectedFound { expected, found } => {

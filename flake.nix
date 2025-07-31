@@ -35,7 +35,14 @@
         fenixPkgs = fenix.packages.${system};
 
         craneLib = (crane.mkLib pkgs).overrideToolchain fenixPkgs.default.toolchain;
-        src = craneLib.cleanCargoSource ./.;
+
+        fqlFilter = path: _type: builtins.match ".*fql$" path != null;
+        fqlOrCargo = path: type: (fqlFilter path type) || (craneLib.filterCargoSources path type);
+        src = lib.cleanSourceWith {
+          src = ./.;
+          filter = fqlOrCargo;
+          name = "source";
+        };
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {

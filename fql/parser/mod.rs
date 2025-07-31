@@ -2,8 +2,10 @@ use crate::ast::{Ast, Spanned};
 use crate::ctx::CompileContext;
 use crate::error::CompileError;
 use crate::lexer::lex;
-use crate::parsers::parse_toplevel;
 use chumsky::{Parser, prelude::*};
+use parsers::parse_toplevel;
+
+pub mod parsers;
 
 pub fn parse(ctx: &CompileContext, src: &str) -> Ast {
     let (tokens, lex_errors) = lex(ctx).parse(src).into_output_errors();
@@ -73,7 +75,7 @@ mod test {
         let src = "Uuid -> Int -> String";
         let tokens = lex(&ctx).parse(src).unwrap();
 
-        let res = crate::parsers::parse_type()
+        let res = crate::parser::parsers::parse_type()
             .parse(
                 tokens
                     .as_slice()

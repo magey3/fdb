@@ -1,0 +1,503 @@
+use crate::{
+    ast::{Ast, Expr, Spanned, TopLevel},
+    ctx::CompileContext,
+    type_checker::{
+        hm_type::{MonoType, PolyType, TypeVar},
+        substitution::Substitution,
+        type_env::TypeEnv,
+        typed::{Typed, TypedAst, TypedExpr, TypedFunction},
+    },
+};
+
+pub mod hm_type;
+pub mod substitution;
+pub mod type_env;
+pub mod typed;
+
+/// Core of Algorithm W
+fn w(
+    ctx: &CompileContext,
+    env: &mut TypeEnv,
+    expr: &Spanned<Expr>,
+) -> (Typed<Spanned<TypedExpr>>, Substitution) {
+    let span = expr.span();
+    match &expr.0 {
+        Expr::String(s) => (
+            Typed::with_type(
+                Spanned::with_span(TypedExpr::String(*s), span),
+                MonoType::Application(ctx.intern_static("String"), vec![]),
+            ),
+            Substitution::default(),
+        ),
+        Expr::Number(n) => (
+            Typed::with_type(
+                Spanned::with_span(TypedExpr::Number(*n), span),
+                MonoType::Application(ctx.intern_static("Int"), vec![]),
+            ),
+            Substitution::default(),
+        ),
+        Expr::Ident(name) => {
+            let poly = env.lookup_ident(ctx, name);
+            let mono = poly.instantiate(Substitution::default());
+            (
+                Typed::with_type(Spanned::with_span(TypedExpr::Ident(*name), span), mono),
+                Substitution::default(),
+            )
+        }
+        Expr::Application(e1, e2) => {
+            let (t1, s1) = w(ctx, env, e1);
+            let ty1 = t1.ty();
+            let mut env1 = env.substitute(&s1);
+            let (t2, s2) = w(ctx, &mut env1, e2);
+            let ty2 = t2.ty();
+
+            let beta = TypeVar::unique();
+            let arrow = MonoType::Application(
+                ctx.intern_static("->"),
+                vec![ty2.substitute(&s2), MonoType::Variable(beta)],
+            );
+            let s3 = ty1.substitute(&s2).unify(ctx, &arrow);
+
+            let s = s3.compose(&s2).compose(&s1);
+            env.apply_substitution(&s);
+            (
+                Typed::with_type(
+                    Spanned::with_span(TypedExpr::Application(Box::new(t1), Box::new(t2)), span),
+                    MonoType::Variable(beta).substitute(&s),
+                ),
+                s,
+            )
+        }
+        Expr::Lambda(args, body) => {
+            let mut env2 = env.clone();
+            let mut arg_ts = Vec::new();
+            for arg in args {
+                let tv = MonoType::Variable(TypeVar::unique());
+                env2.insert_in_current_scope(**arg, PolyType::MonoType(tv.clone()));
+                arg_ts.push(tv);
+            }
+            let (t_body, s_body) = w(ctx, &mut env2, body);
+            let mut result = t_body.ty().clone();
+            for tv in arg_ts.iter().rev() {
+                result = MonoType::Application(
+                    ctx.intern_static("->"),
+                    vec![tv.substitute(&s_body), result],
+                );
+            }
+            (
+                Typed::with_type(
+                    Spanned::with_span(
+                        TypedExpr::Lambda {
+                            params: args
+                                .iter()
+                                .zip(arg_ts)
+                                .map(|(arg, ty)| Typed::with_type(arg.clone(), ty))
+                                .collect(),
+
+                            body: Box::new(t_body),
+                        },
+                        span,
+                    ),
+                    result,
+                ),
+                s_body,
+            )
+        }
+        Expr::Let { ident, value, expr } => {
+            let (e1, s1) = w(ctx, env, value);
+            let t1 = e1.ty();
+            let mut env2 = env.clone();
+            let qt = t1.generalize(&env2);
+            env2.insert_in_current_scope(**ident, qt);
+            env2.apply_substitution(&s1);
+            let (e2, s2) = w(ctx, &mut env2, expr);
+            let t2 = e2.ty().clone();
+            (
+                Typed::with_type(
+                    Spanned::with_span(
+                        TypedExpr::Let {
+                            name: ident.clone(),
+                            value: Box::new(e1),
+                            body: Box::new(e2),
+                        },
+                        span,
+                    ),
+                    t2,
+                ),
+                s2.compose(&s1),
+            )
+        }
+        Expr::Infix { .. } | Expr::Prefix { .. } => unreachable!(),
+    }
+}
+
+pub fn type_check(ctx: &CompileContext, ast: Ast) -> TypedAst {
+    let mut env = TypeEnv::new(ctx);
+    let mut typed_functions = Vec::new();
+    let mut global_subst = Substitution::default();
+
+    for tl in ast.top_level {
+        if let TopLevel::Function(f) = tl.0 {
+            // 1) Re-apply previous substitutions so the env
+            //    is always up‐to‐date:
+            env.apply_substitution(&global_subst);
+
+            // 2) Run W on this one function‐body
+            let (typed_body, s) = w(ctx, &mut env, &f.expr);
+
+            // 3) Its monotype after W
+            let mono = typed_body.ty().clone().substitute(&s);
+
+            // 4) Generalize that into a scheme
+            let scheme = mono.generalize(&env);
+
+            // 5) Install the *scheme* for f.name
+            env.insert_in_current_scope(f.name, scheme);
+
+            // 6) Record this function’s TypedFunction
+            typed_functions.push(Spanned::with_span(
+                TypedFunction {
+                    name: f.name,
+                    params: f.params,
+                    expr: Box::new(typed_body),
+                },
+                tl.1, // the span
+            ));
+
+            // 7) And remember to accumulate its substitution
+            //    so that future bodies see it
+            global_subst = global_subst.compose(&s);
+        }
+    }
+
+    TypedAst {
+        functions: typed_functions,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ast::{Expr, Span, Spanned, desugar},
+        parser::parse,
+    };
+    use chumsky::span::Span as _;
+
+    fn empty_span() -> Span {
+        Span::new((), 0..0)
+    }
+    fn spanned<T: Clone + PartialEq>(v: T) -> Spanned<T> {
+        Spanned(v, empty_span())
+    }
+
+    fn infer(ctx: &CompileContext, expr: &Expr) -> MonoType {
+        let (t, s) = w(ctx, &mut TypeEnv::new(ctx), &spanned(expr.clone()));
+        t.ty().substitute(&s)
+    }
+
+    #[test]
+    fn test_unification() {
+        let ctx = CompileContext::default();
+        // identical vars
+        let v = TypeVar::unique();
+        assert_eq!(
+            MonoType::Variable(v).unify(&ctx, &MonoType::Variable(v)),
+            Substitution::default()
+        );
+        // var with concrete
+        let v2 = TypeVar::unique();
+        let int_t = MonoType::Application(ctx.intern_static("Int"), vec![]);
+        assert_eq!(
+            MonoType::Variable(v2).unify(&ctx, &int_t),
+            Substitution::singleton(v2, int_t.clone())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "type mismatch")]
+    fn test_unify_mismatch() {
+        let ctx = CompileContext::default();
+        MonoType::Application(ctx.intern_static("Int"), vec![]).unify(
+            &ctx,
+            &MonoType::Application(ctx.intern_static("Bool"), vec![]),
+        );
+    }
+
+    #[test]
+    fn test_number_literal() {
+        let ctx = CompileContext::default();
+        assert_eq!(
+            infer(&ctx, &Expr::Number(42)),
+            MonoType::Application(ctx.intern_static("Int"), vec![])
+        );
+    }
+
+    #[test]
+    fn test_string_literal() {
+        let ctx = CompileContext::default();
+        assert_eq!(
+            infer(&ctx, &Expr::String(ctx.intern_static("hi"))),
+            MonoType::Application(ctx.intern_static("String"), vec![])
+        );
+    }
+
+    #[test]
+    fn test_identity_function() {
+        let ctx = CompileContext::default();
+        let id = Expr::Lambda(
+            vec![spanned(ctx.intern_static("x"))],
+            Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        );
+        if let MonoType::Application(arr, args) = infer(&ctx, &id) {
+            assert_eq!(arr, ctx.intern_static("->"));
+            assert_eq!(args.len(), 2);
+            match (&args[0], &args[1]) {
+                (MonoType::Variable(v1), MonoType::Variable(v2)) => assert_eq!(v1, v2),
+                _ => panic!("expected two identical vars"),
+            }
+        } else {
+            panic!("expected arrow");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "arity mismatch")]
+    fn test_unify_arity_mismatch() {
+        let ctx = CompileContext::default();
+        let t1 = MonoType::Application(
+            ctx.intern_static("->"),
+            vec![
+                MonoType::Application(ctx.intern_static("Int"), vec![]),
+                MonoType::Application(ctx.intern_static("String"), vec![]),
+            ],
+        );
+        let t2 = MonoType::Application(
+            ctx.intern_static("->"),
+            vec![
+                MonoType::Application(ctx.intern_static("Int"), vec![]),
+                MonoType::Application(ctx.intern_static("String"), vec![]),
+                MonoType::Application(ctx.intern_static("Bool"), vec![]),
+            ],
+        );
+        t1.unify(&ctx, &t2);
+    }
+
+    #[test]
+    fn test_bool_literal() {
+        let ctx = CompileContext::default();
+        let ty_true = infer(&ctx, &Expr::Ident(ctx.intern_static("true")));
+        assert_eq!(
+            ty_true,
+            MonoType::Application(ctx.intern_static("Bool"), vec![])
+        );
+    }
+
+    #[test]
+    fn test_const_function() {
+        let ctx = CompileContext::default();
+        // \x y -> x
+        let const_expr = Expr::Lambda(
+            vec![
+                spanned(ctx.intern_static("x")),
+                spanned(ctx.intern_static("y")),
+            ],
+            Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        );
+        let ty = infer(&ctx, &const_expr);
+        if let MonoType::Application(arr1, top_args) = ty {
+            assert_eq!(arr1, ctx.intern_static("->"));
+            assert_eq!(top_args.len(), 2);
+            let t1 = &top_args[0];
+            if let MonoType::Application(arr2, inner_args) = &top_args[1] {
+                assert_eq!(*arr2, ctx.intern_static("->"));
+                assert_eq!(inner_args.len(), 2);
+                // result must match first arg
+                assert!(
+                    matches!((t1, &inner_args[1]),
+                             (MonoType::Variable(v1),
+                              MonoType::Variable(v2)) if v1 == v2),
+                    "const: result must match first argument"
+                );
+                // second arg is a fresh var
+                assert!(
+                    matches!(inner_args[0], MonoType::Variable(_)),
+                    "const: second arg must be a fresh var"
+                );
+            } else {
+                panic!("const: expected nested arrow");
+            }
+        } else {
+            panic!("const: expected arrow type");
+        }
+    }
+
+    #[test]
+    fn test_id_application() {
+        let ctx = CompileContext::default();
+        // ( \x -> x ) 5
+        let id_expr = Expr::Lambda(
+            vec![spanned(ctx.intern_static("x"))],
+            Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        );
+        let app = Expr::Application(
+            Box::new(spanned(id_expr)),
+            Box::new(spanned(Expr::Number(5))),
+        );
+        let ty = infer(&ctx, &app);
+        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+    }
+
+    #[test]
+    fn test_simple_let_binding() {
+        // let x = 5 in x
+        let ctx = CompileContext::default();
+        let expr = Expr::Let {
+            ident: spanned(ctx.intern_static("x")),
+            value: Box::new(spanned(Expr::Number(5))),
+            expr: Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        };
+        let ty = infer(&ctx, &expr);
+        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+    }
+
+    #[test]
+    fn test_let_id_application() {
+        // let id = \x -> x in id 10
+        let ctx = CompileContext::default();
+        let id_lambda = Expr::Lambda(
+            vec![spanned(ctx.intern_static("x"))],
+            Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        );
+        let expr = Expr::Let {
+            ident: spanned(ctx.intern_static("id")),
+            value: Box::new(spanned(id_lambda)),
+            expr: Box::new(spanned(Expr::Application(
+                Box::new(spanned(Expr::Ident(ctx.intern_static("id")))),
+                Box::new(spanned(Expr::Number(10))),
+            ))),
+        };
+        let ty = infer(&ctx, &expr);
+        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+    }
+
+    #[test]
+    fn test_let_polymorphism() {
+        // let id = \x -> x in id true
+        let ctx = CompileContext::default();
+        let id_lambda = Expr::Lambda(
+            vec![spanned(ctx.intern_static("x"))],
+            Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        );
+        let expr = Expr::Let {
+            ident: spanned(ctx.intern_static("id")),
+            value: Box::new(spanned(id_lambda)),
+            expr: Box::new(spanned(Expr::Application(
+                Box::new(spanned(Expr::Ident(ctx.intern_static("id")))),
+                Box::new(spanned(Expr::Ident(ctx.intern_static("true")))),
+            ))),
+        };
+        let ty = infer(&ctx, &expr);
+        assert_eq!(ty, MonoType::Application(ctx.intern_static("Bool"), vec![]));
+    }
+
+    #[test]
+    fn test_nested_let_shadowing() {
+        // let x = 5 in let x = "hi" in x
+        let ctx = CompileContext::default();
+        let inner_let = Expr::Let {
+            ident: spanned(ctx.intern_static("x")),
+            value: Box::new(spanned(Expr::String(ctx.intern_static("hi")))),
+            expr: Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
+        };
+        let expr = Expr::Let {
+            ident: spanned(ctx.intern_static("x")),
+            value: Box::new(spanned(Expr::Number(5))),
+            expr: Box::new(spanned(inner_let)),
+        };
+        let ty = infer(&ctx, &expr);
+        assert_eq!(
+            ty,
+            MonoType::Application(ctx.intern_static("String"), vec![])
+        );
+    }
+    /// Parse, desugar and type‐check a little program, returning
+    /// both the Context (for resolving symbols) and the TypedAst.
+    fn parse_and_type(src: &str) -> (CompileContext, TypedAst) {
+        let ctx = CompileContext::default();
+        let mut ast = parse(&ctx, src);
+        desugar(&ctx, &mut ast);
+        let ta = type_check(&ctx, ast);
+        (ctx, ta)
+    }
+
+    #[test]
+    fn polymorphic_id() {
+        let (ctx, ta) = parse_and_type("id a = a;");
+        // exactly one function: `id`
+        assert_eq!(ta.functions.len(), 1);
+        let f = &ta.functions[0];
+        // name = "id"
+        assert_eq!(ctx.resolve_string(&f.name), "id");
+        // no top‐level params after desugaring
+        assert!(f.params.is_empty());
+        // id : α -> α
+        match f.expr.ty() {
+            MonoType::Application(arr, args) => {
+                // arrow constructor
+                assert_eq!(*arr, ctx.intern_static("->"));
+                // two arguments
+                assert_eq!(args.len(), 2);
+                // α == α
+                assert_eq!(args[0], args[1]);
+            }
+            _ => panic!("`id` did not infer to a function type"),
+        }
+    }
+
+    #[test]
+    fn id_on_string_returns_string() {
+        let src = r#"
+            id a = a;
+            test = id "hello";
+        "#;
+        let (ctx, ta) = parse_and_type(src);
+        // two functions: id, then test
+        assert_eq!(ta.functions.len(), 2);
+        let test_f = &ta.functions[1];
+        assert_eq!(ctx.resolve_string(&test_f.name), "test");
+        // test : String
+        let ty = test_f.expr.ty().clone();
+        let expected = MonoType::Application(ctx.intern_static("String"), vec![]);
+        assert_eq!(ty, expected);
+    }
+
+    #[test]
+    fn id_on_number_returns_int() {
+        let src = r#"
+            id a = a;
+            test = id 42;
+        "#;
+        let (ctx, ta) = parse_and_type(src);
+        let test_f = &ta.functions[1];
+        let ty = test_f.expr.ty().clone();
+        let expected = MonoType::Application(ctx.intern_static("Int"), vec![]);
+        assert_eq!(ty, expected);
+    }
+
+    #[test]
+    fn multiple_instantiations_are_independent() {
+        let src = r#"
+            id a = a;
+            test1 = id 42;
+            test2 = id "world";
+        "#;
+        let (ctx, ta) = parse_and_type(src);
+        let ty1 = ta.functions[1].expr.ty().clone();
+        let ty2 = ta.functions[2].expr.ty().clone();
+        let int_ty = MonoType::Application(ctx.intern_static("Int"), vec![]);
+        let str_ty = MonoType::Application(ctx.intern_static("String"), vec![]);
+        assert_eq!(ty1, int_ty);
+        assert_eq!(ty2, str_ty);
+    }
+}

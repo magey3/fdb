@@ -1,15 +1,18 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 use chumsky::span::SimpleSpan;
 
-use crate::ctx::Symbol;
+use crate::ctx::{CompileContext, Symbol};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ast {
     pub top_level: Vec<Spanned<TopLevel>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InfixOp {
     Addition,
     Subtraction,
@@ -27,12 +30,12 @@ pub enum InfixOp {
     Or,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrefixOp {
     Not,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     // atom
     String(Symbol),
@@ -98,44 +101,44 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Visibility {
     Public,
     Private,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
     pub name: Symbol,
     pub params: Vec<Symbol>,
     pub expr: Box<Spanned<Expr>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     Named(Symbol),
     Function(Box<Spanned<Self>>, Box<Spanned<Self>>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeAnnotation {
     pub name: Symbol,
     pub ty: Box<Spanned<Type>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleExport {
     pub names: Vec<Symbol>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopLevel {
     ModuleExport(ModuleExport),
     TypeAnnotation(TypeAnnotation),
     Function(Function),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     String(Symbol),
     Ident(Symbol),
@@ -175,16 +178,40 @@ pub enum Token {
 }
 
 pub type Span = SimpleSpan;
-#[derive(Clone, Debug)]
-pub struct Spanned<T: Clone + PartialEq>(pub T, pub Span);
+pub struct Spanned<T>(pub T, pub Span);
 
-impl<T: Clone + PartialEq> PartialEq for Spanned<T> {
+impl<T> Spanned<T> {
+    pub fn with_span(value: T, span: Span) -> Self {
+        Spanned(value, span)
+    }
+    pub fn span(&self) -> Span {
+        self.1
+    }
+    pub fn value(&self) -> &T {
+        &self.0
+    }
+    pub fn into_value(self) -> T {
+        self.0
+    }
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
+        Spanned(f(self.0), self.1)
+    }
+    pub fn as_ref(&self) -> Spanned<&T> {
+        Spanned(&self.0, self.1)
+    }
+    pub fn map_ref<U>(&self, f: impl FnOnce(&T) -> U) -> Spanned<U> {
+        Spanned(f(&self.0), self.1)
+    }
+}
+
+impl<T: PartialEq> PartialEq for Spanned<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
+impl<T: PartialEq + Eq> Eq for Spanned<T> {}
 
-impl<T: Clone + PartialEq> Deref for Spanned<T> {
+impl<T> Deref for Spanned<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -192,153 +219,119 @@ impl<T: Clone + PartialEq> Deref for Spanned<T> {
     }
 }
 
-impl<T: Clone + PartialEq> DerefMut for Spanned<T> {
+impl<T> DerefMut for Spanned<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-// impl<'src> fmt::Display for Ast<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         for item in &self.top_level {
-//             writeln!(f, "{}", item.0)?;
-//         }
-//         Ok(())
-//     }
-// }
-//
-// impl fmt::Display for TopLevel {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self {
-//             TopLevel::ModuleExport(export) => write!(f, "{export}"),
-//             TopLevel::TypeAnnotation(ann) => write!(f, "{ann}"),
-//             TopLevel::Function(func) => write!(f, "{func}"),
-//         }
-//     }
-// }
-//
-// impl<'src> fmt::Display for ModuleExport<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "pub {};", self.names.join(", "))
-//     }
-// }
-//
-// impl<'src> fmt::Display for TypeAnnotation<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "{} :: {};", self.name, self.ty.0)
-//     }
-// }
-//
-// impl<'src> fmt::Display for Function<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(
-//             f,
-//             "{} {} = {};",
-//             self.name,
-//             self.params.join(" "),
-//             self.expr.0
-//         )
-//     }
-// }
-//
-// impl<'src> fmt::Display for Expr<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self {
-//             Expr::String(s) => write!(f, "\"{s}\""),
-//             Expr::Ident(i) => write!(f, "{i}"),
-//             Expr::Number(n) => write!(f, "{n}"),
-//             Expr::Infix { op, left, right } => {
-//                 use InfixOp::*;
-//                 match op {
-//                     Addition => write!(f, "({} + {})", left.0, right.0),
-//                     Subtraction => write!(f, "({} - {})", left.0, right.0),
-//                     Multiplication => write!(f, "({} * {})", left.0, right.0),
-//                     Division => write!(f, "({} / {})", left.0, right.0),
-//                     FieldAccess => write!(f, "{}.{}", left.0, right.0),
-//                     Pipe => write!(f, "({} |> {})", left.0, right.0),
-//                     Equality => write!(f, "({} == {})", left.0, right.0),
-//                     NotEquality => write!(f, "({} != {})", left.0, right.0),
-//                     LessThan => write!(f, "({} < {})", left.0, right.0),
-//                     GreaterThan => write!(f, "({} > {})", left.0, right.0),
-//                     LessThanOrEqual => write!(f, "({} <= {})", left.0, right.0),
-//                     GreaterThanOrEqual => write!(f, "({} >= {})", left.0, right.0),
-//                     And => write!(f, "({} && {})", left.0, right.0),
-//                     Or => write!(f, "({} || {})", left.0, right.0),
-//                 }
-//             }
-//             Expr::Prefix { op, expr } => {
-//                 use PrefixOp::*;
-//                 match op {
-//                     Not => write!(f, "!{}", expr.0),
-//                 }
-//             }
-//             Expr::Application(a, b) => write!(f, "{} {}", a.0, b.0),
-//             Expr::Lambda(params, body) => {
-//                 let params: Vec<_> = params.iter().map(|p| p.0).collect();
-//                 write!(f, "fn {} = {}", params.join(" "), body.0)
-//             }
-//             Expr::Let { ident, value, expr } => {
-//                 write!(f, "(let {} = {} in {})", ident.0, value.0, expr.0)
-//             }
-//         }
-//     }
-// }
-//
-// impl<'src> fmt::Display for Type<'src> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self {
-//             Type::Named(n) => write!(f, "{n}"),
-//             Type::Function(a, b) => write!(f, "{} -> {}", a.0, b.0),
-//         }
-//     }
-// }
+impl<T: Clone> Clone for Spanned<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1)
+    }
+}
 
-// pub fn desugar<'src>(ast: &mut Ast) {
-//     for toplevel in &mut ast.top_level {
-//         if let TopLevel::Function(function) = &mut toplevel.0 {
-//             desugar_operators(&mut function.expr)
-//         }
-//     }
-// }
-//
-// pub fn desugar_operators<'src>(expr: &mut Expr) {
-//     match expr {
-//         Expr::Infix { op, left, right } => {
-//             let op_name = match op {
-//                 InfixOp::Addition => "+",
-//                 InfixOp::Subtraction => "-",
-//                 InfixOp::Multiplication => "*",
-//                 InfixOp::Division => "/",
-//                 InfixOp::Equality => "==",
-//                 InfixOp::NotEquality => "!=",
-//                 InfixOp::LessThan => "<",
-//                 InfixOp::GreaterThan => ">",
-//                 InfixOp::LessThanOrEqual => "<=",
-//                 InfixOp::GreaterThanOrEqual => ">=",
-//                 InfixOp::And => "&&",
-//                 InfixOp::Or => "||",
-//                 InfixOp::FieldAccess => ".",
-//                 InfixOp::Pipe => "|>",
-//             };
-//             *expr = Expr::Application(
-//                 Box::new(Spanned(Expr::Ident(op_name), left.1)),
-//                 right.clone(),
-//             );
-//         }
-//
-//         Expr::Prefix { op, expr: inner } => {
-//             let op_name = match op {
-//                 PrefixOp::Not => "!",
-//             };
-//             *expr = Expr::Application(
-//                 Box::new(Spanned(Expr::Ident(op_name), inner.1)),
-//                 inner.clone(),
-//             );
-//         }
-//
-//         _ => {
-//             // Recurse into sub-expressions
-//             expr.walk_mut(&mut |e| desugar_operators(e));
-//         }
-//     }
-// }
+impl<T: Debug> Debug for Spanned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({:#?}, {:?})", self.0, self.1)
+    }
+}
+
+pub fn desugar(ctx: &CompileContext, ast: &mut Ast) {
+    // 1) Turn `name p1 p2 … pn = body` into
+    //    `name = fn p1 -> fn p2 -> … fn pn -> body`
+    for tl in &mut ast.top_level {
+        if let TopLevel::Function(func) = &mut tl.0 {
+            // take ownership of the old Expr
+            let mut expr = (*func.expr).clone();
+            // wrap params in reverse order
+            for &param in func.params.iter().rev() {
+                let span = expr.span();
+                let param_spanned = Spanned(param, span);
+                expr = Spanned(Expr::Lambda(vec![param_spanned], Box::new(expr)), span);
+            }
+            func.params.clear(); // no more top‐level params
+            func.expr = Box::new(expr); // install the new lambda‐expression
+        }
+    }
+
+    // 2) Now desugar all infix/prefix operators inside those (now nullary)
+    //    function bodies
+    for tl in &mut ast.top_level {
+        if let TopLevel::Function(function) = &mut tl.0 {
+            desugar_operators(ctx, &mut function.expr.0);
+        }
+    }
+}
+
+pub fn desugar_operators(ctx: &CompileContext, expr: &mut Expr) {
+    match expr {
+        Expr::Infix { op, left, right } => {
+            // 1) Desugar sub‐expressions first
+            desugar_operators(ctx, &mut *left);
+            desugar_operators(ctx, &mut *right);
+
+            // 2) Intern the operator name
+            let sym = ctx.intern_static(match op {
+                InfixOp::Addition => "+",
+                InfixOp::Subtraction => "-",
+                InfixOp::Multiplication => "*",
+                InfixOp::Division => "/",
+                InfixOp::Equality => "==",
+                InfixOp::NotEquality => "!=",
+                InfixOp::LessThan => "<",
+                InfixOp::GreaterThan => ">",
+                InfixOp::LessThanOrEqual => "<=",
+                InfixOp::GreaterThanOrEqual => ">=",
+                InfixOp::And => "&&",
+                InfixOp::Or => "||",
+                InfixOp::FieldAccess => ".",
+                InfixOp::Pipe => "|>",
+            });
+
+            // 3) Clone the now‐desugared operands
+            let lhs = left.clone();
+            let rhs = right.clone();
+            let lhs_span = lhs.span();
+
+            // 4) Build `(op lhs)` then `((op lhs) rhs)`
+            let op_ident = Spanned(Expr::Ident(sym), lhs.span());
+            let first_app = Spanned(Expr::Application(Box::new(op_ident), lhs), lhs_span);
+            *expr = Expr::Application(Box::new(first_app), rhs);
+        }
+
+        Expr::Prefix { op, expr: inner } => {
+            // Desugar inside first
+            desugar_operators(ctx, &mut *inner);
+
+            let sym = ctx.intern_static(match op {
+                PrefixOp::Not => "!",
+            });
+
+            let arg = inner.clone();
+            let op_ident = Spanned(Expr::Ident(sym), arg.span());
+            *expr = Expr::Application(Box::new(op_ident), arg);
+        }
+
+        Expr::Application(func, arg) => {
+            desugar_operators(ctx, &mut *func);
+            desugar_operators(ctx, &mut *arg);
+        }
+
+        Expr::Lambda(_params, body) => {
+            desugar_operators(ctx, &mut *body);
+        }
+
+        Expr::Let {
+            ident: _,
+            value,
+            expr,
+        } => {
+            desugar_operators(ctx, &mut *value);
+            desugar_operators(ctx, &mut *expr);
+        }
+
+        // Leaf cases: nothing to do
+        Expr::String(_) | Expr::Ident(_) | Expr::Number(_) => {}
+    }
+}

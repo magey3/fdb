@@ -1,0 +1,7 @@
+id a = a;
+
+test = id "string";
+
+//complex_calc a b c = 
+//	(a + b) * c / 2 == 42 && 
+//	!(b < 0);

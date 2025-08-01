@@ -41,6 +41,7 @@ impl TypeVar {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MonoType {
     Application(Symbol, Vec<Self>),
+    Function(Box<Self>, Box<Self>),
     Variable(TypeVar),
 }
 
@@ -51,6 +52,11 @@ impl MonoType {
                 MonoType::Application(*name, args.iter().map(|t| t.substitute(sub)).collect())
             }
             MonoType::Variable(tv) => sub.0.get(tv).cloned().unwrap_or_else(|| self.clone()),
+            MonoType::Function(a, b) => {
+                let a = a.substitute(sub);
+                let b = b.substitute(sub);
+                MonoType::Function(Box::new(a), Box::new(b))
+            }
         }
     }
 
@@ -64,6 +70,11 @@ impl MonoType {
                 set.insert(*v);
                 set
             }
+            MonoType::Function(a, b) => {
+                let mut a = a.free_variables();
+                a.extend(b.free_variables());
+                a
+            }
         }
     }
 
@@ -71,6 +82,7 @@ impl MonoType {
         match self {
             MonoType::Application(_, ts) => ts.iter().any(|t| t.contains(var)),
             MonoType::Variable(tv) => *tv == var,
+            MonoType::Function(a, b) => a.contains(var) || b.contains(var),
         }
     }
 
@@ -99,6 +111,12 @@ impl MonoType {
 
             (_, Self::Variable(_)) => other.unify(ctx, self),
 
+            (Self::Function(a, b), Self::Function(c, d)) => {
+                let s1 = a.unify(ctx, c);
+                let s2 = b.substitute(&s1).unify(ctx, &d.substitute(&s1));
+                s1.compose(&s2)
+            }
+
             (Self::Application(f, f_args), Self::Application(g, g_args)) => {
                 if f != g {
                     let f = ctx.resolve_string(f);
@@ -121,6 +139,7 @@ impl MonoType {
                         acc.compose(&s)
                     })
             }
+            (lhs, rhs) => panic!("type mismatch {lhs:?} != {rhs:?}"),
         }
     }
 }

@@ -27,7 +27,7 @@ impl TypeEnv {
         let bool = || Application(ctx.intern_static("Bool"), vec![]);
         let string = || Application(ctx.intern_static("String"), vec![]);
 
-        let arrow = |a: MonoType, b: MonoType| Application(ctx.intern_static("->"), vec![a, b]);
+        let arrow = |a: MonoType, b: MonoType| Function(Box::new(a), Box::new(b));
         let binop = |t: MonoType| arrow(t.clone(), arrow(t.clone(), t));
         let cmp = |t: MonoType| arrow(t.clone(), arrow(t.clone(), bool()));
 

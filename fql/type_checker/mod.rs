@@ -52,9 +52,9 @@ fn w(
             let ty2 = t2.ty();
 
             let beta = TypeVar::unique();
-            let arrow = MonoType::Application(
-                ctx.intern_static("->"),
-                vec![ty2.substitute(&s2), MonoType::Variable(beta)],
+            let arrow = MonoType::Function(
+                Box::new(ty2.substitute(&s2)),
+                Box::new(MonoType::Variable(beta)),
             );
             let s3 = ty1.substitute(&s2).unify(ctx, &arrow);
 
@@ -79,10 +79,7 @@ fn w(
             let (t_body, s_body) = w(ctx, &mut env2, body);
             let mut result = t_body.ty().clone();
             for tv in arg_ts.iter().rev() {
-                result = MonoType::Application(
-                    ctx.intern_static("->"),
-                    vec![tv.substitute(&s_body), result],
-                );
+                result = MonoType::Function(Box::new(tv.substitute(&s_body)), Box::new(result));
             }
             (
                 Typed::with_type(
@@ -249,15 +246,13 @@ mod tests {
             vec![spanned(ctx.intern_static("x"))],
             Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
         );
-        if let MonoType::Application(arr, args) = infer(&ctx, &id) {
-            assert_eq!(arr, ctx.intern_static("->"));
-            assert_eq!(args.len(), 2);
-            match (&args[0], &args[1]) {
+        if let MonoType::Function(arg_ty, ret_ty) = infer(&ctx, &id) {
+            match (&*arg_ty, &*ret_ty) {
                 (MonoType::Variable(v1), MonoType::Variable(v2)) => assert_eq!(v1, v2),
-                _ => panic!("expected two identical vars"),
+                _ => panic!("expected two identical variables"),
             }
         } else {
-            panic!("expected arrow");
+            panic!("expected a function type");
         }
     }
 
@@ -305,30 +300,26 @@ mod tests {
             Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
         );
         let ty = infer(&ctx, &const_expr);
-        if let MonoType::Application(arr1, top_args) = ty {
-            assert_eq!(arr1, ctx.intern_static("->"));
-            assert_eq!(top_args.len(), 2);
-            let t1 = &top_args[0];
-            if let MonoType::Application(arr2, inner_args) = &top_args[1] {
-                assert_eq!(*arr2, ctx.intern_static("->"));
-                assert_eq!(inner_args.len(), 2);
-                // result must match first arg
-                assert!(
-                    matches!((t1, &inner_args[1]),
-                             (MonoType::Variable(v1),
-                              MonoType::Variable(v2)) if v1 == v2),
-                    "const: result must match first argument"
-                );
-                // second arg is a fresh var
-                assert!(
-                    matches!(inner_args[0], MonoType::Variable(_)),
-                    "const: second arg must be a fresh var"
-                );
+        // top‐level arrow
+        if let MonoType::Function(t1, rest) = ty {
+            // nested arrow
+            if let MonoType::Function(t2, t3) = *rest {
+                // result must match first argument
+                match (&*t1, &*t3) {
+                    (MonoType::Variable(v1), MonoType::Variable(v2)) if v1 == v2 => { /* ok */ }
+                    _ => panic!("const: result must match first argument"),
+                }
+                // second parameter is a fresh var
+                if let MonoType::Variable(_) = *t2 {
+                    /* ok */
+                } else {
+                    panic!("const: second arg must be a fresh var");
+                }
             } else {
-                panic!("const: expected nested arrow");
+                panic!("const: expected nested function arrow");
             }
         } else {
-            panic!("const: expected arrow type");
+            panic!("const: expected top-level function arrow");
         }
     }
 
@@ -433,23 +424,22 @@ mod tests {
 
     #[test]
     fn polymorphic_id() {
-        let (ctx, ta) = parse_and_type("id a = a;");
+        let (ctx, ta) = {
+            let ctx = CompileContext::default();
+            let mut ast = parse(&ctx, "id a = a;");
+            desugar(&ctx, &mut ast);
+            let t = type_check(&ctx, ast);
+            (ctx, t)
+        };
         // exactly one function: `id`
         assert_eq!(ta.functions.len(), 1);
         let f = &ta.functions[0];
-        // name = "id"
         assert_eq!(ctx.resolve_string(&f.name), "id");
-        // no top‐level params after desugaring
         assert!(f.params.is_empty());
         // id : α -> α
         match f.expr.ty() {
-            MonoType::Application(arr, args) => {
-                // arrow constructor
-                assert_eq!(*arr, ctx.intern_static("->"));
-                // two arguments
-                assert_eq!(args.len(), 2);
-                // α == α
-                assert_eq!(args[0], args[1]);
+            MonoType::Function(a, b) => {
+                assert_eq!(*a, *b);
             }
             _ => panic!("`id` did not infer to a function type"),
         }

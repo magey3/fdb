@@ -3,10 +3,23 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use miette::Diagnostic;
+use thiserror::Error;
+
 use crate::{
-    ctx::{CompileContext, Symbol},
+    ctx::Symbol,
     type_checker::{substitution::Substitution, type_env::TypeEnv},
 };
+
+#[derive(Clone, Debug, Error, Diagnostic)]
+pub enum UnificationError {
+    #[error("found type recursion, remove the infinite type")]
+    InfiniteType,
+    #[error("type mismatch: expected {0:?}, got {1:?}")]
+    TypeMismatch(Symbol, Symbol),
+    #[error("arity mismatch: type constructor {0:?} expected {1} args but received {2} args")]
+    ArityMismatch(Symbol, usize, usize),
+}
 
 pub struct VarGen(AtomicU32);
 
@@ -98,8 +111,8 @@ impl MonoType {
         out
     }
 
-    pub fn unify(&self, ctx: &CompileContext, other: &Self) -> Substitution {
-        match (self, other) {
+    pub fn unify(&self, other: &Self) -> Result<Substitution, UnificationError> {
+        Ok(match (self, other) {
             (Self::Variable(a), Self::Variable(b)) if a == b => Substitution::default(),
 
             (Self::Variable(a), t) => {
@@ -109,38 +122,35 @@ impl MonoType {
                 Substitution::singleton(*a, t.clone())
             }
 
-            (_, Self::Variable(_)) => other.unify(ctx, self),
+            (_, Self::Variable(_)) => other.unify(self)?,
 
             (Self::Function(a, b), Self::Function(c, d)) => {
-                let s1 = a.unify(ctx, c);
-                let s2 = b.substitute(&s1).unify(ctx, &d.substitute(&s1));
+                let s1 = a.unify(c)?;
+                let s2 = b.substitute(&s1).unify(&d.substitute(&s1))?;
                 s1.compose(&s2)
             }
 
             (Self::Application(f, f_args), Self::Application(g, g_args)) => {
                 if f != g {
-                    let f = ctx.resolve_string(f);
-                    let g = ctx.resolve_string(g);
-                    panic!("type mismatch: expected {f}, found {g}");
+                    return Err(UnificationError::TypeMismatch(*f, *g));
                 }
                 if f_args.len() != g_args.len() {
-                    let f = ctx.resolve_string(f);
-                    panic!(
-                        "arity mismatch: {f} expects {} args, got {}",
+                    return Err(UnificationError::ArityMismatch(
+                        *f,
                         f_args.len(),
-                        g_args.len()
-                    );
+                        g_args.len(),
+                    ));
                 }
-                f_args
-                    .iter()
-                    .zip(g_args)
-                    .fold(Substitution::default(), |acc, (a, b)| {
-                        let s = a.substitute(&acc).unify(ctx, &b.substitute(&acc));
-                        acc.compose(&s)
-                    })
+                f_args.iter().zip(g_args).try_fold(
+                    Substitution::default(),
+                    |acc, (a, b)| -> Result<Substitution, UnificationError> {
+                        let s = a.substitute(&acc).unify(&b.substitute(&acc))?;
+                        Ok(acc.compose(&s))
+                    },
+                )?
             }
             (lhs, rhs) => panic!("type mismatch {lhs:?} != {rhs:?}"),
-        }
+        })
     }
 }
 

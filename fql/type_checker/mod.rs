@@ -56,7 +56,7 @@ fn w(
                 Box::new(ty2.substitute(&s2)),
                 Box::new(MonoType::Variable(beta)),
             );
-            let s3 = ty1.substitute(&s2).unify(ctx, &arrow);
+            let s3 = ty1.substitute(&s2).unify(&arrow).unwrap();
 
             let s = s3.compose(&s2).compose(&s1);
             env.apply_substitution(&s);
@@ -199,26 +199,25 @@ mod tests {
         // identical vars
         let v = TypeVar::unique();
         assert_eq!(
-            MonoType::Variable(v).unify(&ctx, &MonoType::Variable(v)),
+            MonoType::Variable(v).unify(&MonoType::Variable(v)).unwrap(),
             Substitution::default()
         );
         // var with concrete
         let v2 = TypeVar::unique();
         let int_t = MonoType::Application(ctx.intern_static("Int"), vec![]);
         assert_eq!(
-            MonoType::Variable(v2).unify(&ctx, &int_t),
+            MonoType::Variable(v2).unify(&int_t).unwrap(),
             Substitution::singleton(v2, int_t.clone())
         );
     }
 
     #[test]
-    #[should_panic(expected = "type mismatch")]
+    #[should_panic(expected = "TypeMismatch")]
     fn test_unify_mismatch() {
         let ctx = CompileContext::default();
-        MonoType::Application(ctx.intern_static("Int"), vec![]).unify(
-            &ctx,
-            &MonoType::Application(ctx.intern_static("Bool"), vec![]),
-        );
+        MonoType::Application(ctx.intern_static("Int"), vec![])
+            .unify(&MonoType::Application(ctx.intern_static("Bool"), vec![]))
+            .unwrap();
     }
 
     #[test]
@@ -257,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "arity mismatch")]
+    #[should_panic(expected = "ArityMismatch")]
     fn test_unify_arity_mismatch() {
         let ctx = CompileContext::default();
         let t1 = MonoType::Application(
@@ -275,7 +274,7 @@ mod tests {
                 MonoType::Application(ctx.intern_static("Bool"), vec![]),
             ],
         );
-        t1.unify(&ctx, &t2);
+        t1.unify(&t2).unwrap();
     }
 
     #[test]

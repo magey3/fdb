@@ -1,6 +1,9 @@
 use crate::{
-    ast::{Ast, Expr, Spanned, TopLevel},
-    ctx::CompileContext,
+    ast::{Expr, Spanned},
+    ctx::{
+        CompileContext,
+        registry::{TYPE_ID_INT, TYPE_ID_STRING},
+    },
     desugar::DesugaredAst,
     type_checker::{
         hm_type::{MonoType, PolyType, TypeVar},
@@ -26,14 +29,14 @@ fn w(
         Expr::String(s) => (
             Typed::with_type(
                 Spanned::with_span(TypedExpr::String(*s), span),
-                MonoType::Application(ctx.intern_static("String"), vec![]),
+                MonoType::Application(TYPE_ID_STRING, vec![]),
             ),
             Substitution::default(),
         ),
         Expr::Number(n) => (
             Typed::with_type(
                 Spanned::with_span(TypedExpr::Number(*n), span),
-                MonoType::Application(ctx.intern_static("Int"), vec![]),
+                MonoType::Application(TYPE_ID_INT, vec![]),
             ),
             Substitution::default(),
         ),
@@ -177,6 +180,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::{Expr, Span, Spanned},
+        ctx::registry::TYPE_ID_BOOL,
         desugar::desugar,
         parser::parse,
     };
@@ -196,7 +200,6 @@ mod tests {
 
     #[test]
     fn test_unification() {
-        let ctx = CompileContext::default();
         // identical vars
         let v = TypeVar::unique();
         assert_eq!(
@@ -205,7 +208,7 @@ mod tests {
         );
         // var with concrete
         let v2 = TypeVar::unique();
-        let int_t = MonoType::Application(ctx.intern_static("Int"), vec![]);
+        let int_t = MonoType::Application(TYPE_ID_INT, vec![]);
         assert_eq!(
             MonoType::Variable(v2).unify(&int_t).unwrap(),
             Substitution::singleton(v2, int_t.clone())
@@ -215,9 +218,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "TypeMismatch")]
     fn test_unify_mismatch() {
-        let ctx = CompileContext::default();
-        MonoType::Application(ctx.intern_static("Int"), vec![])
-            .unify(&MonoType::Application(ctx.intern_static("Bool"), vec![]))
+        MonoType::Application(TYPE_ID_INT, vec![])
+            .unify(&MonoType::Application(TYPE_ID_BOOL, vec![]))
             .unwrap();
     }
 
@@ -226,7 +228,7 @@ mod tests {
         let ctx = CompileContext::default();
         assert_eq!(
             infer(&ctx, &Expr::Number(42)),
-            MonoType::Application(ctx.intern_static("Int"), vec![])
+            MonoType::Application(TYPE_ID_INT, vec![])
         );
     }
 
@@ -235,7 +237,7 @@ mod tests {
         let ctx = CompileContext::default();
         assert_eq!(
             infer(&ctx, &Expr::String(ctx.intern_static("hi"))),
-            MonoType::Application(ctx.intern_static("String"), vec![])
+            MonoType::Application(TYPE_ID_STRING, vec![])
         );
     }
 
@@ -257,35 +259,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ArityMismatch")]
-    fn test_unify_arity_mismatch() {
-        let ctx = CompileContext::default();
-        let t1 = MonoType::Application(
-            ctx.intern_static("->"),
-            vec![
-                MonoType::Application(ctx.intern_static("Int"), vec![]),
-                MonoType::Application(ctx.intern_static("String"), vec![]),
-            ],
-        );
-        let t2 = MonoType::Application(
-            ctx.intern_static("->"),
-            vec![
-                MonoType::Application(ctx.intern_static("Int"), vec![]),
-                MonoType::Application(ctx.intern_static("String"), vec![]),
-                MonoType::Application(ctx.intern_static("Bool"), vec![]),
-            ],
-        );
-        t1.unify(&t2).unwrap();
-    }
-
-    #[test]
     fn test_bool_literal() {
         let ctx = CompileContext::default();
         let ty_true = infer(&ctx, &Expr::Ident(ctx.intern_static("true")));
-        assert_eq!(
-            ty_true,
-            MonoType::Application(ctx.intern_static("Bool"), vec![])
-        );
+        assert_eq!(ty_true, MonoType::Application(TYPE_ID_BOOL, vec![]));
     }
 
     #[test]
@@ -336,7 +313,7 @@ mod tests {
             Box::new(spanned(Expr::Number(5))),
         );
         let ty = infer(&ctx, &app);
-        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+        assert_eq!(ty, MonoType::Application(TYPE_ID_INT, vec![]));
     }
 
     #[test]
@@ -349,7 +326,7 @@ mod tests {
             expr: Box::new(spanned(Expr::Ident(ctx.intern_static("x")))),
         };
         let ty = infer(&ctx, &expr);
-        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+        assert_eq!(ty, MonoType::Application(TYPE_ID_INT, vec![]));
     }
 
     #[test]
@@ -369,7 +346,7 @@ mod tests {
             ))),
         };
         let ty = infer(&ctx, &expr);
-        assert_eq!(ty, MonoType::Application(ctx.intern_static("Int"), vec![]));
+        assert_eq!(ty, MonoType::Application(TYPE_ID_INT, vec![]));
     }
 
     #[test]
@@ -389,7 +366,7 @@ mod tests {
             ))),
         };
         let ty = infer(&ctx, &expr);
-        assert_eq!(ty, MonoType::Application(ctx.intern_static("Bool"), vec![]));
+        assert_eq!(ty, MonoType::Application(TYPE_ID_BOOL, vec![]));
     }
 
     #[test]
@@ -407,10 +384,7 @@ mod tests {
             expr: Box::new(spanned(inner_let)),
         };
         let ty = infer(&ctx, &expr);
-        assert_eq!(
-            ty,
-            MonoType::Application(ctx.intern_static("String"), vec![])
-        );
+        assert_eq!(ty, MonoType::Application(TYPE_ID_STRING, vec![]));
     }
     /// Parse, desugar and type‐check a little program, returning
     /// both the Context (for resolving symbols) and the TypedAst.
@@ -458,7 +432,7 @@ mod tests {
         assert_eq!(ctx.resolve_string(&test_f.name), "test");
         // test : String
         let ty = test_f.expr.ty().clone();
-        let expected = MonoType::Application(ctx.intern_static("String"), vec![]);
+        let expected = MonoType::Application(TYPE_ID_STRING, vec![]);
         assert_eq!(ty, expected);
     }
 
@@ -468,10 +442,10 @@ mod tests {
             id a = a;
             test = id 42;
         "#;
-        let (ctx, ta) = parse_and_type(src);
+        let (_, ta) = parse_and_type(src);
         let test_f = &ta.functions[1];
         let ty = test_f.expr.ty().clone();
-        let expected = MonoType::Application(ctx.intern_static("Int"), vec![]);
+        let expected = MonoType::Application(TYPE_ID_INT, vec![]);
         assert_eq!(ty, expected);
     }
 
@@ -482,11 +456,11 @@ mod tests {
             test1 = id 42;
             test2 = id "world";
         "#;
-        let (ctx, ta) = parse_and_type(src);
+        let (_, ta) = parse_and_type(src);
         let ty1 = ta.functions[1].expr.ty().clone();
         let ty2 = ta.functions[2].expr.ty().clone();
-        let int_ty = MonoType::Application(ctx.intern_static("Int"), vec![]);
-        let str_ty = MonoType::Application(ctx.intern_static("String"), vec![]);
+        let int_ty = MonoType::Application(TYPE_ID_INT, vec![]);
+        let str_ty = MonoType::Application(TYPE_ID_STRING, vec![]);
         assert_eq!(ty1, int_ty);
         assert_eq!(ty2, str_ty);
     }

@@ -1,11 +1,13 @@
 use std::{
+    collections::HashMap,
     fmt::Debug,
+    hash::Hash,
     ops::{Deref, DerefMut},
 };
 
 use chumsky::span::SimpleSpan;
 
-use crate::ctx::{CompileContext, Symbol};
+use crate::ctx::Symbol;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ast {
@@ -118,6 +120,7 @@ pub struct Function {
 pub enum Type {
     Application(Spanned<Symbol>, Vec<Spanned<Self>>),
     Function(Box<Spanned<Self>>, Box<Spanned<Self>>),
+    Struct(HashMap<Spanned<Symbol>, Spanned<Self>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,6 +156,9 @@ pub enum Token {
 
     LeftParen,
     RightParen,
+    LeftCurlyBrace,
+    RightCurlyBrace,
+
     Period,
     Comma,
     Semicolon,
@@ -241,5 +247,11 @@ impl<T: Clone> Clone for Spanned<T> {
 impl<T: Debug> Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:#?}, {:?})", self.0, self.1)
+    }
+}
+
+impl<T: Hash> Hash for Spanned<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }

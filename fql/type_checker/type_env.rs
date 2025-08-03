@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ctx::{CompileContext, Symbol},
+    ctx::{
+        CompileContext, Symbol,
+        registry::{TYPE_ID_BOOL, TYPE_ID_INT, TYPE_ID_STRING},
+    },
     type_checker::{
         hm_type::{MonoType, PolyType, TypeVar},
         substitution::Substitution,
@@ -23,9 +26,9 @@ impl TypeEnv {
     pub fn prelude(ctx: &CompileContext) -> HashMap<Symbol, PolyType> {
         use MonoType::*;
 
-        let int = || Application(ctx.intern_static("Int"), vec![]);
-        let bool = || Application(ctx.intern_static("Bool"), vec![]);
-        let string = || Application(ctx.intern_static("String"), vec![]);
+        let int = || Application(TYPE_ID_INT, vec![]);
+        let bool = || Application(TYPE_ID_BOOL, vec![]);
+        let string = || Application(TYPE_ID_STRING, vec![]);
 
         let arrow = |a: MonoType, b: MonoType| Function(Box::new(a), Box::new(b));
         let binop = |t: MonoType| arrow(t.clone(), arrow(t.clone(), t));

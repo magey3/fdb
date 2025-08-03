@@ -7,7 +7,7 @@ use miette::Diagnostic;
 use thiserror::Error;
 
 use crate::{
-    ctx::Symbol,
+    ctx::registry::TypeId,
     type_checker::{substitution::Substitution, type_env::TypeEnv},
 };
 
@@ -16,9 +16,9 @@ pub enum UnificationError {
     #[error("found type recursion, remove the infinite type")]
     InfiniteType,
     #[error("type mismatch: expected {0:?}, got {1:?}")]
-    TypeMismatch(Symbol, Symbol),
+    TypeMismatch(TypeId, TypeId),
     #[error("arity mismatch: type constructor {0:?} expected {1} args but received {2} args")]
-    ArityMismatch(Symbol, usize, usize),
+    ArityMismatch(TypeId, usize, usize),
 }
 
 pub struct VarGen(AtomicU32);
@@ -53,7 +53,7 @@ impl TypeVar {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MonoType {
-    Application(Symbol, Vec<Self>),
+    Application(TypeId, Vec<Self>),
     Function(Box<Self>, Box<Self>),
     Variable(TypeVar),
 }

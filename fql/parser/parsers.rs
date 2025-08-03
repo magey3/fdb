@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chumsky::{
     input::ValueInput,
     pratt::{infix, left, prefix},
@@ -246,7 +248,18 @@ where
                 Spanned(Type::Function(Box::new(lhs), Box::new(rhs)), e.span())
             });
 
-        choice((function, atom))
+        let ty_no_struct = function.or(atom);
+
+        let struct_field = ident
+            .then_ignore(just(Token::Colon))
+            .then(ty_no_struct.clone())
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<HashMap<_, _>>()
+            .delimited_by(just(Token::LeftCurlyBrace), just(Token::RightCurlyBrace))
+            .map_with(|fields, e| Spanned(Type::Struct(fields), e.span()));
+
+        struct_field.or(ty_no_struct)
     })
 }
 

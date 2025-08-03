@@ -2,20 +2,26 @@ use std::cell::RefCell;
 
 use lasso::{Rodeo, Spur};
 
-use crate::error::CompileError;
+use crate::{ctx::registry::TypeRegistry, error::CompileError};
+
+pub mod registry;
 
 pub type Symbol = Spur;
 
 pub struct CompileContext {
     pub interner: RefCell<Rodeo>,
     pub errors: RefCell<Vec<CompileError>>,
+    pub type_registry: TypeRegistry,
 }
 
 impl CompileContext {
     pub fn new() -> Self {
+        let mut interner = Rodeo::new();
+        let type_registry = TypeRegistry::new(&mut interner);
         Self {
             errors: RefCell::new(Vec::new()),
-            interner: RefCell::new(Rodeo::new()),
+            interner: RefCell::new(interner),
+            type_registry,
         }
     }
 

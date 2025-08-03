@@ -58,6 +58,8 @@ pub fn lex<'src>(
         just(';').to(Token::Semicolon),
         just('(').to(Token::LeftParen),
         just(')').to(Token::RightParen),
+        just('{').to(Token::LeftCurlyBrace),
+        just('}').to(Token::RightCurlyBrace),
     ));
 
     let symbols = choice((types, control_flow, logic, arithmetic, misc));

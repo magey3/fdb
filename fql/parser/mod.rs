@@ -65,10 +65,19 @@ mod test {
         let ctx = CompileContext::default();
 
         let expected = spanned(Function(
-            Box::new(spanned(Named(ctx.intern_static("Uuid")))),
+            Box::new(spanned(Application(
+                spanned(ctx.intern_static("Uuid")),
+                Vec::new(),
+            ))),
             Box::new(spanned(Function(
-                Box::new(spanned(Named(ctx.intern_static("Int")))),
-                Box::new(spanned(Named(ctx.intern_static("String")))),
+                Box::new(spanned(Application(
+                    spanned(ctx.intern_static("Int")),
+                    Vec::new(),
+                ))),
+                Box::new(spanned(Application(
+                    spanned(ctx.intern_static("String")),
+                    Vec::new(),
+                ))),
             ))),
         ));
 
@@ -91,7 +100,7 @@ mod test {
         let ctx = CompileContext::default();
         let src = r#"
             pub get_messages;
-            get_messages :: Uuid -> Int -> String;
+            get_messages: Uuid -> Int -> String;
             get_messages user_id page = "hello" |> process 42;
             // comment
             bar |> baz
@@ -102,7 +111,7 @@ mod test {
             Token::Ident(ctx.intern_static("get_messages")),
             Token::Semicolon,
             Token::Ident(ctx.intern_static("get_messages")),
-            Token::DoubleColon,
+            Token::Colon,
             Token::Ident(ctx.intern_static("Uuid")),
             Token::Arrow,
             Token::Ident(ctx.intern_static("Int")),
@@ -158,15 +167,24 @@ mod test {
     #[test]
     fn type_annotation() {
         let ctx = CompileContext::default();
-        let src = "get_messages :: Uuid -> Int -> String;";
+        let src = "get_messages: Uuid -> Int -> String;";
 
         let expected = vec![spanned(TopLevel::TypeAnnotation(TypeAnnotation {
             name: ctx.intern_static("get_messages"),
             ty: Box::new(spanned(Type::Function(
-                Box::new(spanned(Type::Named(ctx.intern_static("Uuid")))),
+                Box::new(spanned(Type::Application(
+                    spanned(ctx.intern_static("Uuid")),
+                    Vec::new(),
+                ))),
                 Box::new(spanned(Type::Function(
-                    Box::new(spanned(Type::Named(ctx.intern_static("Int")))),
-                    Box::new(spanned(Type::Named(ctx.intern_static("String")))),
+                    Box::new(spanned(Type::Application(
+                        spanned(ctx.intern_static("Int")),
+                        Vec::new(),
+                    ))),
+                    Box::new(spanned(Type::Application(
+                        spanned(ctx.intern_static("String")),
+                        Vec::new(),
+                    ))),
                 ))),
             ))),
         }))];
@@ -221,7 +239,7 @@ mod test {
         let src = r#"
             pub get_messages;
 
-            get_messages :: Uuid -> Int -> String;
+            get_messages: Uuid -> Int -> String;
             get_messages user_id page = messages
                 |> filter (fn x = x.id + user_id)
                 |> process page;
@@ -267,9 +285,9 @@ mod test {
             pub get_messages, process_data, calculate_stats;
 
             // Type annotations
-            get_messages :: Uuid -> Int -> String;
-            process_data :: String -> Int -> Bool;
-            calculate_stats :: Int -> Int -> Int;
+            get_messages: Uuid -> Int -> String;
+            process_data: String -> Int -> Bool;
+            calculate_stats: Int -> Int -> Int;
 
             // Basic function with arithmetic
             calculate_stats x y = x + y * 2 - 1;
@@ -335,7 +353,7 @@ mod test {
     #[test]
     fn test_type_annotations() {
         let ctx = CompileContext::default();
-        let src = "my_func :: Int -> String -> Bool;";
+        let src = "my_func: Int -> String -> Bool;";
         let result = parse(&ctx, src);
         assert!(ctx.errors.borrow().is_empty());
         assert_eq!(result.top_level.len(), 1);

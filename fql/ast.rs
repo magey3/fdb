@@ -116,7 +116,7 @@ pub struct Function {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
-    Named(Symbol),
+    Application(Spanned<Symbol>, Vec<Spanned<Self>>),
     Function(Box<Spanned<Self>>, Box<Spanned<Self>>),
 }
 
@@ -149,12 +149,11 @@ pub enum Token {
     Period,
     Comma,
     Semicolon,
-    Colon,
     Pipe,
     Equals,
 
     Arrow,
-    DoubleColon,
+    Colon,
 
     Multiplication,
     Division,

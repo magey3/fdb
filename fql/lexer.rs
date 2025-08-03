@@ -27,10 +27,7 @@ pub fn lex<'src>(
         s => Token::Ident(ctx.intern(s)),
     });
 
-    let types = choice((
-        just("->").to(Token::Arrow),
-        just("::").to(Token::DoubleColon),
-    ));
+    let types = choice((just("->").to(Token::Arrow), just(':').to(Token::Colon)));
 
     let control_flow = choice((just("|>").to(Token::Pipe),));
 
@@ -58,7 +55,6 @@ pub fn lex<'src>(
         just('.').to(Token::Period),
         just(',').to(Token::Comma),
         just(';').to(Token::Semicolon),
-        just(':').to(Token::Colon),
         just('(').to(Token::LeftParen),
         just(')').to(Token::RightParen),
     ));

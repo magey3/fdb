@@ -224,18 +224,28 @@ where
     I: ValueInput<'tokens, Token = Token, Span = Span>,
 {
     recursive(|ty| {
-        let named = select! { Token::Ident(ident) => Type::Named(ident) }
-            .labelled("named type")
-            .map_with(|ty, e| Spanned(ty, e.span()));
+        let ident =
+            select! { Token::Ident(ident) => ident }.map_with(|ident, e| Spanned(ident, e.span()));
 
-        let function = named
+        let type_constructor = ident
+            .then(ty.clone().repeated().collect())
+            .map_with(|(name, params), e| Spanned(Type::Application(name, params), e.span()));
+
+        let parenthesised = ty
+            .clone()
+            .delimited_by(just(Token::LeftParen), just(Token::RightParen));
+
+        let atom = parenthesised.or(type_constructor);
+
+        let function = atom
+            .clone()
             .then_ignore(just(Token::Arrow))
             .then(ty)
             .map_with(|(lhs, rhs), e| {
                 Spanned(Type::Function(Box::new(lhs), Box::new(rhs)), e.span())
             });
 
-        function.or(named)
+        choice((function, atom))
     })
 }
 
@@ -259,7 +269,7 @@ where
         .map(TopLevel::ModuleExport);
 
     let type_annotation = ident
-        .then_ignore(just(Token::DoubleColon))
+        .then_ignore(just(Token::Colon))
         .then(parse_type())
         .then_ignore(just(Token::Semicolon))
         .map(|(name, ty)| {

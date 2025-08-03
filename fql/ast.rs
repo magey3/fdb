@@ -123,7 +123,7 @@ pub enum Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeAnnotation {
     pub name: Symbol,
-    pub ty: Box<Spanned<Type>>,
+    pub ty: Spanned<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,10 +132,17 @@ pub struct ModuleExport {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeDefinition {
+    pub name: Symbol,
+    pub ty: Box<Spanned<Type>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopLevel {
     ModuleExport(ModuleExport),
     TypeAnnotation(TypeAnnotation),
     Function(Function),
+    TypeDefinition(TypeDefinition),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,6 +181,7 @@ pub enum Token {
     Fn,
     Let,
     In,
+    Type,
 }
 
 pub type Span = SimpleSpan;
@@ -233,104 +241,5 @@ impl<T: Clone> Clone for Spanned<T> {
 impl<T: Debug> Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:#?}, {:?})", self.0, self.1)
-    }
-}
-
-pub fn desugar(ctx: &CompileContext, ast: &mut Ast) {
-    // 1) Turn `name p1 p2 … pn = body` into
-    //    `name = fn p1 -> fn p2 -> … fn pn -> body`
-    for tl in &mut ast.top_level {
-        if let TopLevel::Function(func) = &mut tl.0 {
-            // take ownership of the old Expr
-            let mut expr = (*func.expr).clone();
-            // wrap params in reverse order
-            for &param in func.params.iter().rev() {
-                let span = expr.span();
-                let param_spanned = Spanned(param, span);
-                expr = Spanned(Expr::Lambda(vec![param_spanned], Box::new(expr)), span);
-            }
-            func.params.clear(); // no more top‐level params
-            func.expr = Box::new(expr); // install the new lambda‐expression
-        }
-    }
-
-    // 2) Now desugar all infix/prefix operators inside those (now nullary)
-    //    function bodies
-    for tl in &mut ast.top_level {
-        if let TopLevel::Function(function) = &mut tl.0 {
-            desugar_operators(ctx, &mut function.expr.0);
-        }
-    }
-}
-
-pub fn desugar_operators(ctx: &CompileContext, expr: &mut Expr) {
-    match expr {
-        Expr::Infix { op, left, right } => {
-            // 1) Desugar sub‐expressions first
-            desugar_operators(ctx, &mut *left);
-            desugar_operators(ctx, &mut *right);
-
-            // 2) Intern the operator name
-            let sym = ctx.intern_static(match op {
-                InfixOp::Addition => "+",
-                InfixOp::Subtraction => "-",
-                InfixOp::Multiplication => "*",
-                InfixOp::Division => "/",
-                InfixOp::Equality => "==",
-                InfixOp::NotEquality => "!=",
-                InfixOp::LessThan => "<",
-                InfixOp::GreaterThan => ">",
-                InfixOp::LessThanOrEqual => "<=",
-                InfixOp::GreaterThanOrEqual => ">=",
-                InfixOp::And => "&&",
-                InfixOp::Or => "||",
-                InfixOp::FieldAccess => ".",
-                InfixOp::Pipe => "|>",
-            });
-
-            // 3) Clone the now‐desugared operands
-            let lhs = left.clone();
-            let rhs = right.clone();
-            let lhs_span = lhs.span();
-
-            // 4) Build `(op lhs)` then `((op lhs) rhs)`
-            let op_ident = Spanned(Expr::Ident(sym), lhs.span());
-            let first_app = Spanned(Expr::Application(Box::new(op_ident), lhs), lhs_span);
-            *expr = Expr::Application(Box::new(first_app), rhs);
-        }
-
-        Expr::Prefix { op, expr: inner } => {
-            // Desugar inside first
-            desugar_operators(ctx, &mut *inner);
-
-            let sym = ctx.intern_static(match op {
-                PrefixOp::Not => "!",
-            });
-
-            let arg = inner.clone();
-            let op_ident = Spanned(Expr::Ident(sym), arg.span());
-            *expr = Expr::Application(Box::new(op_ident), arg);
-        }
-
-        Expr::Application(func, arg) => {
-            desugar_operators(ctx, &mut *func);
-            desugar_operators(ctx, &mut *arg);
-        }
-
-        Expr::Lambda(_params, body) => {
-            desugar_operators(ctx, &mut *body);
-        }
-
-        Expr::Let {
-            ident: _,
-            value,
-            expr,
-        } => {
-            desugar_operators(ctx, &mut *value);
-            desugar_operators(ctx, &mut *expr);
-        }
-
-        // Leaf cases: nothing to do
-        Expr::String(_) | Expr::Ident(_) | Expr::Number(_) => {}
     }
 }

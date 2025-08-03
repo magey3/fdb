@@ -24,6 +24,7 @@ pub fn lex<'src>(
         "fn" => Token::Fn,
         "let" => Token::Let,
         "in" => Token::In,
+        "type" => Token::Type,
         s => Token::Ident(ctx.intern(s)),
     });
 

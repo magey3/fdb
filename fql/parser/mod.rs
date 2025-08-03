@@ -171,7 +171,7 @@ mod test {
 
         let expected = vec![spanned(TopLevel::TypeAnnotation(TypeAnnotation {
             name: ctx.intern_static("get_messages"),
-            ty: Box::new(spanned(Type::Function(
+            ty: spanned(Type::Function(
                 Box::new(spanned(Type::Application(
                     spanned(ctx.intern_static("Uuid")),
                     Vec::new(),
@@ -186,7 +186,7 @@ mod test {
                         Vec::new(),
                     ))),
                 ))),
-            ))),
+            )),
         }))];
 
         let tokens = lex(&ctx).parse(src).unwrap();

@@ -6,6 +6,7 @@ use chumsky::{
 
 use crate::ast::{
     Expr, Function, ModuleExport, Span, Spanned, Token, TopLevel, Type, TypeAnnotation,
+    TypeDefinition,
 };
 
 pub fn parse_expr<'tokens, 'src: 'tokens, I>()
@@ -272,8 +273,15 @@ where
         .then_ignore(just(Token::Colon))
         .then(parse_type())
         .then_ignore(just(Token::Semicolon))
+        .map(|(name, ty)| TopLevel::TypeAnnotation(TypeAnnotation { name, ty }));
+
+    let type_definition = just(Token::Type)
+        .ignore_then(ident)
+        .then_ignore(just(Token::Equals))
+        .then(parse_type())
+        .then_ignore(just(Token::Semicolon))
         .map(|(name, ty)| {
-            TopLevel::TypeAnnotation(TypeAnnotation {
+            TopLevel::TypeDefinition(TypeDefinition {
                 name,
                 ty: Box::new(ty),
             })
@@ -291,7 +299,7 @@ where
         })
         .map(TopLevel::Function);
 
-    let top_level = choice((module_export, type_annotation, query));
+    let top_level = choice((module_export, type_definition, type_annotation, query));
 
     top_level
         .map_with(|q, span| Spanned(q, span.span()))

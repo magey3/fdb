@@ -1,6 +1,7 @@
 use crate::{
     ast::{Ast, Expr, Spanned, TopLevel},
     ctx::CompileContext,
+    desugar::DesugaredAst,
     type_checker::{
         hm_type::{MonoType, PolyType, TypeVar},
         substitution::Substitution,
@@ -128,43 +129,42 @@ fn w(
     }
 }
 
-pub fn type_check(ctx: &CompileContext, ast: Ast) -> TypedAst {
+pub fn type_check(ctx: &CompileContext, ast: DesugaredAst) -> TypedAst {
     let mut env = TypeEnv::new(ctx);
     let mut typed_functions = Vec::new();
     let mut global_subst = Substitution::default();
 
-    for tl in ast.top_level {
-        if let TopLevel::Function(f) = tl.0 {
-            // 1) Re-apply previous substitutions so the env
-            //    is always up‐to‐date:
-            env.apply_substitution(&global_subst);
+    for tl in ast.functions {
+        let f = tl.function;
+        // 1) Re-apply previous substitutions so the env
+        //    is always up‐to‐date:
+        env.apply_substitution(&global_subst);
 
-            // 2) Run W on this one function‐body
-            let (typed_body, s) = w(ctx, &mut env, &f.expr);
+        // 2) Run W on this one function‐body
+        let (typed_body, s) = w(ctx, &mut env, &f.expr);
 
-            // 3) Its monotype after W
-            let mono = typed_body.ty().clone().substitute(&s);
+        // 3) Its monotype after W
+        let mono = typed_body.ty().clone().substitute(&s);
 
-            // 4) Generalize that into a scheme
-            let scheme = mono.generalize(&env);
+        // 4) Generalize that into a scheme
+        let scheme = mono.generalize(&env);
 
-            // 5) Install the *scheme* for f.name
-            env.insert_in_current_scope(f.name, scheme);
+        // 5) Install the *scheme* for f.name
+        env.insert_in_current_scope(f.name, scheme);
 
-            // 6) Record this function’s TypedFunction
-            typed_functions.push(Spanned::with_span(
-                TypedFunction {
-                    name: f.name,
-                    params: f.params,
-                    expr: Box::new(typed_body),
-                },
-                tl.1, // the span
-            ));
+        // 6) Record this function’s TypedFunction
+        typed_functions.push(Spanned::with_span(
+            TypedFunction {
+                name: f.name,
+                params: f.params.clone(),
+                expr: Box::new(typed_body),
+            },
+            f.span(), // the span
+        ));
 
-            // 7) And remember to accumulate its substitution
-            //    so that future bodies see it
-            global_subst = global_subst.compose(&s);
-        }
+        // 7) And remember to accumulate its substitution
+        //    so that future bodies see it
+        global_subst = global_subst.compose(&s);
     }
 
     TypedAst {
@@ -176,7 +176,8 @@ pub fn type_check(ctx: &CompileContext, ast: Ast) -> TypedAst {
 mod tests {
     use super::*;
     use crate::{
-        ast::{Expr, Span, Spanned, desugar},
+        ast::{Expr, Span, Spanned},
+        desugar::desugar,
         parser::parse,
     };
     use chumsky::span::Span as _;
@@ -415,9 +416,9 @@ mod tests {
     /// both the Context (for resolving symbols) and the TypedAst.
     fn parse_and_type(src: &str) -> (CompileContext, TypedAst) {
         let ctx = CompileContext::default();
-        let mut ast = parse(&ctx, src);
-        desugar(&ctx, &mut ast);
-        let ta = type_check(&ctx, ast);
+        let ast = parse(&ctx, src);
+        let desugared_ast = desugar(&ctx, ast);
+        let ta = type_check(&ctx, desugared_ast);
         (ctx, ta)
     }
 
@@ -425,9 +426,9 @@ mod tests {
     fn polymorphic_id() {
         let (ctx, ta) = {
             let ctx = CompileContext::default();
-            let mut ast = parse(&ctx, "id a = a;");
-            desugar(&ctx, &mut ast);
-            let t = type_check(&ctx, ast);
+            let ast = parse(&ctx, "id a = a;");
+            let desugared_ast = desugar(&ctx, ast);
+            let t = type_check(&ctx, desugared_ast);
             (ctx, t)
         };
         // exactly one function: `id`

@@ -96,6 +96,27 @@ pub enum SemanticError {
         #[label("...here")]
         span: SourceSpan,
     },
+
+    #[error("Attempted to create type alias, which is currently not implemented")]
+    #[diagnostic(
+        code(types::unimplemented_alias),
+        help("Consider removing the type alias")
+    )]
+    UnimplementedTypeAliasing {
+        #[label]
+        span: SourceSpan,
+    },
+
+    #[error("Attempted to create type that already exists: {name}")]
+    #[diagnostic(
+        code(types::type_exists),
+        help("Consider removing the duplicate type definition")
+    )]
+    TypeExists {
+        name: String,
+        #[label]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Error, Diagnostic, Debug)]

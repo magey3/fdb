@@ -150,6 +150,6 @@ pub fn desugar_operators(ctx: &CompileContext, expr: &mut Expr) {
         }
 
         // Leaf cases: nothing to do
-        Expr::String(_) | Expr::Ident(_) | Expr::Number(_) => {}
+        Expr::String(_) | Expr::Ident(_) | Expr::Number(_) | Expr::Constructor { .. } => {}
     }
 }

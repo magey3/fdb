@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, num::NonZeroU32};
 use lasso::Rodeo;
 use thiserror::Error;
 
-use crate::ctx::Symbol;
+use crate::{ctx::Symbol, type_checker::hm_type::MonoType};
 
 pub const TYPE_ID_INT: TypeId = TypeId::new(1);
 pub const TYPE_ID_BOOL: TypeId = TypeId::new(2);
@@ -23,8 +23,6 @@ pub enum TypeRegistryError {
         "Attempted to create type {name:?} within the TypeRegistry, but the type already exists"
     )]
     TypeExists { name: Symbol },
-    #[error("Exceeded maximum type count (u32::MAX)")]
-    TypeCountExceeded,
 }
 
 pub struct TypeRegistry(RefCell<TypeRegistryInner>);
@@ -37,16 +35,12 @@ struct TypeRegistryInner {
 }
 
 impl TypeRegistryInner {
-    fn next_type_id(&mut self) -> Result<TypeId, TypeRegistryError> {
+    fn next_type_id(&mut self) -> TypeId {
         let id = self.next_type_id;
 
-        self.next_type_id.0 = self
-            .next_type_id
-            .0
-            .checked_add(1)
-            .ok_or(TypeRegistryError::TypeCountExceeded)?;
+        self.next_type_id.0 = self.next_type_id.0.checked_add(1).unwrap();
 
-        Ok(id)
+        id
     }
 }
 
@@ -85,14 +79,20 @@ impl TypeRegistry {
         self.0.borrow().by_id[id.0.get() as usize - 1].clone()
     }
 
-    pub fn get_type_id(&self, name: Symbol) -> Result<TypeId, TypeRegistryError> {
+    pub fn get_type_id(&self, name: Symbol) -> TypeId {
         let mut inner = self.0.borrow_mut();
         if let Some(id) = inner.by_name.get(&name) {
-            Ok(*id)
+            *id
         } else {
-            let id = inner.next_type_id()?;
+            let id = inner.next_type_id();
             inner.by_name.insert(name, id);
-            Ok(id)
+            inner.by_id.push(TypeConstructor {
+                arity: 0,
+                type_id: id,
+                name,
+                kind: TypeKind::Undefined,
+            });
+            id
         }
     }
 
@@ -105,20 +105,20 @@ impl TypeRegistry {
         arity: u32,
         kind: TypeKind,
     ) -> Result<TypeId, TypeRegistryError> {
+        let id = self.get_type_id(name);
         let mut inner = self.0.borrow_mut();
-        let id = inner.next_type_id()?;
 
-        if inner.by_name.contains_key(&name) {
+        let tc = &mut inner.by_id[id.0.get() as usize - 1];
+        if tc.kind != TypeKind::Undefined {
             return Err(TypeRegistryError::TypeExists { name });
         }
 
-        inner.by_name.insert(name, id);
-        inner.by_id.push(TypeConstructor {
+        *tc = TypeConstructor {
             type_id: id,
             name,
             kind,
             arity,
-        });
+        };
 
         Ok(id)
     }
@@ -138,12 +138,13 @@ pub enum TypeKind {
     #[default]
     Undefined,
     Builtin,
+    Struct(HashMap<Symbol, MonoType>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeConstructor {
-    arity: u32,
-    type_id: TypeId,
-    name: Symbol,
-    kind: TypeKind,
+    pub arity: u32,
+    pub type_id: TypeId,
+    pub name: Symbol,
+    pub kind: TypeKind,
 }

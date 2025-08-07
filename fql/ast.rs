@@ -60,6 +60,10 @@ pub enum Expr {
         value: Box<Spanned<Self>>,
         expr: Box<Spanned<Self>>,
     },
+    Constructor {
+        name: Spanned<Symbol>,
+        fields: HashMap<Spanned<Symbol>, Spanned<Self>>,
+    },
 }
 
 impl Expr {
@@ -98,6 +102,11 @@ impl Expr {
             } => {
                 value.walk_mut(f);
                 expr.walk_mut(f);
+            }
+            Expr::Constructor { name: _, fields } => {
+                for field in fields.values_mut() {
+                    field.walk_mut(f);
+                }
             }
         }
     }
@@ -243,6 +252,8 @@ impl<T: Clone> Clone for Spanned<T> {
         Self(self.0.clone(), self.1)
     }
 }
+
+impl<T: Copy> Copy for Spanned<T> {}
 
 impl<T: Debug> Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

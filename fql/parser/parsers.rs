@@ -6,9 +6,12 @@ use chumsky::{
     prelude::*,
 };
 
-use crate::ast::{
-    Expr, Function, ModuleExport, Span, Spanned, Token, TopLevel, Type, TypeAnnotation,
-    TypeDefinition,
+use crate::{
+    ast::{
+        Expr, Function, ModuleExport, Span, Spanned, Token, TopLevel, Type, TypeAnnotation,
+        TypeDefinition,
+    },
+    ctx::Symbol,
 };
 
 pub fn parse_expr<'tokens, 'src: 'tokens, I>()
@@ -53,7 +56,19 @@ where
                 )
             });
 
-        let atoms = choice((parenthesised, lambda, let_binding, atom));
+        let constructor_field = ident.then_ignore(just(Token::Equals)).then(expr.clone());
+
+        let constructor = ident
+            .then(
+                constructor_field
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .collect::<HashMap<Spanned<Symbol>, Spanned<Expr>>>()
+                    .delimited_by(just(Token::LeftCurlyBrace), just(Token::RightCurlyBrace)),
+            )
+            .map_with(|(name, fields), e| Spanned(Expr::Constructor { name, fields }, e.span()));
+
+        let atoms = choice((parenthesised, lambda, let_binding, constructor, atom));
 
         atoms.pratt((
             // function application and field access

@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use crate::{
-    ast::{Expr, Spanned},
+    ast::{Expr, Spanned, Type},
     ctx::{
         CompileContext,
-        registry::{TYPE_ID_INT, TYPE_ID_STRING},
+        registry::{TYPE_ID_INT, TYPE_ID_STRING, TypeKind, TypeRegistryError},
     },
     desugar::DesugaredAst,
+    error::{SemanticError, span_to_miette},
     type_checker::{
         hm_type::{MonoType, PolyType, TypeVar},
         substitution::Substitution,
@@ -92,7 +95,7 @@ fn w(
                             params: args
                                 .iter()
                                 .zip(arg_ts)
-                                .map(|(arg, ty)| Typed::with_type(arg.clone(), ty))
+                                .map(|(arg, ty)| Typed::with_type(*arg, ty))
                                 .collect(),
 
                             body: Box::new(t_body),
@@ -117,7 +120,7 @@ fn w(
                 Typed::with_type(
                     Spanned::with_span(
                         TypedExpr::Let {
-                            name: ident.clone(),
+                            name: *ident,
                             value: Box::new(e1),
                             body: Box::new(e2),
                         },
@@ -128,11 +131,60 @@ fn w(
                 s2.compose(&s1),
             )
         }
+        Expr::Constructor {
+            name,
+            fields: ctor_fields,
+        } => {
+            let type_id = ctx.type_registry.get_type_id(**name);
+            let ty = ctx.type_registry.get_type(type_id);
+
+            let mut new_fields = HashMap::new();
+            let mut subst = Substitution::default();
+            if let TypeKind::Struct(ty_fields) = &ty.kind {
+                if ctor_fields.len() != ty_fields.len()
+                    || !ctor_fields.keys().all(|k| ty_fields.contains_key(k))
+                {
+                    panic!("struct constructor field mismatch")
+                }
+
+                for (field_name, field_expr, field_monotype) in ctor_fields
+                    .iter()
+                    .map(|field| (field.0, field.1, ty_fields.get(field.0).unwrap()))
+                {
+                    env.apply_substitution(&subst);
+                    let (e, s) = w(ctx, env, field_expr);
+                    let ty = e.ty().substitute(&s);
+                    subst = subst.compose(&ty.unify(field_monotype).unwrap());
+                    new_fields.insert(
+                        *field_name,
+                        Typed::with_type(e.into_value(), field_monotype.clone()),
+                    );
+                }
+            } else {
+                panic!("attempted to concstruct non-struct type")
+            }
+
+            (
+                Typed::with_type(
+                    Spanned::with_span(
+                        TypedExpr::Constructor {
+                            name: *name,
+                            fields: new_fields,
+                        },
+                        span,
+                    ),
+                    MonoType::Application(type_id, Vec::new()),
+                ),
+                subst,
+            )
+        }
         Expr::Infix { .. } | Expr::Prefix { .. } => unreachable!(),
     }
 }
 
 pub fn type_check(ctx: &CompileContext, ast: DesugaredAst) -> TypedAst {
+    register_types(ctx, &ast);
+
     let mut env = TypeEnv::new(ctx);
     let mut typed_functions = Vec::new();
     let mut global_subst = Substitution::default();
@@ -172,6 +224,58 @@ pub fn type_check(ctx: &CompileContext, ast: DesugaredAst) -> TypedAst {
 
     TypedAst {
         functions: typed_functions,
+    }
+}
+
+fn ast_type_to_monotype(ctx: &CompileContext, ty: &Spanned<Type>) -> MonoType {
+    match ty.value() {
+        Type::Application(name, params) => {
+            let mut params_mono = Vec::new();
+            for param in params {
+                params_mono.push(ast_type_to_monotype(ctx, param));
+            }
+            MonoType::Application(ctx.type_registry.get_type_id(**name), params_mono)
+        }
+        Type::Function(a, b) => MonoType::Function(
+            Box::new(ast_type_to_monotype(ctx, a)),
+            Box::new(ast_type_to_monotype(ctx, b)),
+        ),
+        Type::Struct(_) => unimplemented!(),
+    }
+}
+
+fn register_types(ctx: &CompileContext, ast: &DesugaredAst) {
+    for type_def in &ast.type_defs {
+        let ty = &type_def.0.ty;
+        let ty = match ty.value() {
+            Type::Application(..) | Type::Function(..) => {
+                ctx.push_error(SemanticError::UnimplementedTypeAliasing {
+                    span: span_to_miette(ty.span()),
+                });
+                continue;
+            }
+            Type::Struct(type_struct) => {
+                let mut new = HashMap::new();
+                for (field, value) in type_struct {
+                    let val = ast_type_to_monotype(ctx, value);
+
+                    new.insert(field.0, val);
+                }
+
+                TypeKind::Struct(new)
+            }
+        };
+        let id = ctx.type_registry.register_type(type_def.name, 0, ty);
+
+        if let Err(err) = id {
+            let err = match err {
+                TypeRegistryError::TypeExists { name } => SemanticError::TypeExists {
+                    name: ctx.resolve_string(&name),
+                    span: span_to_miette(type_def.span()),
+                },
+            };
+            ctx.push_error(err);
+        }
     }
 }
 

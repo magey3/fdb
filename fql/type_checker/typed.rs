@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::Debug,
     ops::{Deref, DerefMut},
 };
@@ -91,5 +92,9 @@ pub enum TypedExpr {
         name: Spanned<Symbol>,
         value: Box<Typed<Spanned<Self>>>,
         body: Box<Typed<Spanned<Self>>>,
+    },
+    Constructor {
+        name: Spanned<Symbol>,
+        fields: HashMap<Spanned<Symbol>, Typed<Spanned<Self>>>,
     },
 }

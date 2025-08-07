@@ -1,6 +1,11 @@
 id a = a;
 
-test = id "string";
+test = Hello { a = 1, b = "world", };
+
+type Hello = {
+    a: Int,
+    b: String,
+};
 
 //complex_calc a b c = 
 //	(a + b) * c / 2 == 42 && 

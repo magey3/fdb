@@ -63,9 +63,19 @@ fn w(
                 Box::new(ty2.substitute(&s2)),
                 Box::new(MonoType::Variable(beta)),
             );
-            let s3 = ty1.substitute(&s2).unify(&arrow).unwrap();
 
-            let s = s3.compose(&s2).compose(&s1);
+            let s = match ty1.substitute(&s2).unify(&arrow) {
+                Ok(s3) => {
+                    let s = s3.compose(&s2).compose(&s1);
+                    env.apply_substitution(&s);
+                    s
+                }
+                Err(err) => {
+                    ctx.push_error(err.into_semantic(ctx, span));
+                    s2.compose(&s1)
+                }
+            };
+
             env.apply_substitution(&s);
             (
                 Typed::with_type(
@@ -144,24 +154,46 @@ fn w(
                 if ctor_fields.len() != ty_fields.len()
                     || !ctor_fields.keys().all(|k| ty_fields.contains_key(k))
                 {
-                    panic!("struct constructor field mismatch")
+                    ctx.push_error(SemanticError::FieldMismatch {
+                        expected: ty_fields
+                            .keys()
+                            .map(|k| ctx.resolve_string(k))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        received: ctor_fields
+                            .keys()
+                            .map(|k| ctx.resolve_string(k))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        span: span_to_miette(span),
+                    });
                 }
 
                 for (field_name, field_expr, field_monotype) in ctor_fields
                     .iter()
-                    .map(|field| (field.0, field.1, ty_fields.get(field.0).unwrap()))
+                    .flat_map(|field| ty_fields.get(field.0).map(|ty| (field.0, field.1, ty)))
                 {
                     env.apply_substitution(&subst);
                     let (e, s) = w(ctx, env, field_expr);
                     let ty = e.ty().substitute(&s);
-                    subst = subst.compose(&ty.unify(field_monotype).unwrap());
-                    new_fields.insert(
-                        *field_name,
-                        Typed::with_type(e.into_value(), field_monotype.clone()),
-                    );
+                    let unified = ty.unify(field_monotype);
+
+                    match unified {
+                        Ok(s) => {
+                            subst = subst.compose(&s);
+                            new_fields.insert(
+                                *field_name,
+                                Typed::with_type(e.into_value(), field_monotype.clone()),
+                            );
+                        }
+                        Err(err) => ctx.push_error(err.into_semantic(ctx, field_expr.span())),
+                    }
                 }
             } else {
-                panic!("attempted to concstruct non-struct type")
+                ctx.push_error(SemanticError::ConstructorForNonStruct {
+                    type_name: ctx.resolve_string(&ty.name),
+                    span: span_to_miette(span),
+                });
             }
 
             (

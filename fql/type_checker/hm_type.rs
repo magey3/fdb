@@ -7,7 +7,9 @@ use miette::Diagnostic;
 use thiserror::Error;
 
 use crate::{
-    ctx::registry::TypeId,
+    ast::Span,
+    ctx::{CompileContext, registry::TypeId},
+    error::{SemanticError, span_to_miette},
     type_checker::{substitution::Substitution, type_env::TypeEnv},
 };
 
@@ -19,6 +21,24 @@ pub enum UnificationError {
     TypeMismatch(TypeId, TypeId),
     #[error("arity mismatch: type constructor {0:?} expected {1} args but received {2} args")]
     ArityMismatch(TypeId, usize, usize),
+}
+
+impl UnificationError {
+    pub fn into_semantic(self, ctx: &CompileContext, span: Span) -> SemanticError {
+        match self {
+            UnificationError::InfiniteType => SemanticError::InfiniteType {
+                span: span_to_miette(span),
+            },
+            UnificationError::TypeMismatch(a, b) => SemanticError::TypeMismatch {
+                a: ctx.resolve_string(&ctx.type_registry.get_type(a).name),
+                b: ctx.resolve_string(&ctx.type_registry.get_type(b).name),
+                span: span_to_miette(span),
+            },
+            UnificationError::ArityMismatch(_type_id, _, _) => {
+                unreachable!("this shouldn't happen anymore")
+            }
+        }
+    }
 }
 
 pub struct VarGen(AtomicU32);

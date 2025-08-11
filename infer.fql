@@ -2,9 +2,15 @@ id a = a;
 
 test = Hello { a = 1, b = "world", };
 
+test2 = Int { a = 1, b = "world", };
+
+test3 = Hello { a = 1 };
+
+test4 = Hello { a = 1, c = 3 };
+
 type Hello = {
     a: Int,
-    b: String,
+    b: Int,
 };
 
 //complex_calc a b c = 

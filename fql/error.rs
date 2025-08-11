@@ -117,6 +117,45 @@ pub enum SemanticError {
         #[label]
         span: SourceSpan,
     },
+
+    #[error("Type mismatch: expected {a} but found {b}")]
+    #[diagnostic(code(types::type_mismatch))]
+    TypeMismatch {
+        a: String,
+        b: String,
+        #[label]
+        span: SourceSpan,
+    },
+
+    #[error("Infinite type detected")]
+    #[diagnostic(
+        code(types::type_mismatch),
+        help("Consider removing the type recursion")
+    )]
+    InfiniteType {
+        #[label]
+        span: SourceSpan,
+    },
+
+    #[error("Field mismatch: expected {expected} but received {received}")]
+    #[diagnostic(
+        code(types::field_mismatch),
+        help("Consider adding/removing the mismatched fields")
+    )]
+    FieldMismatch {
+        expected: String,
+        received: String,
+        #[label]
+        span: SourceSpan,
+    },
+
+    #[error("Attempted to construct struct of type {type_name} but {type_name} is not a struct")]
+    #[diagnostic(code(types::constructor_for_non_struct))]
+    ConstructorForNonStruct {
+        type_name: String,
+        #[label]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Error, Diagnostic, Debug)]

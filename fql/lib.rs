@@ -19,5 +19,12 @@ pub fn compile_src<'src>(src: &'src str) -> Result<(), CompilerErrors<'src>> {
 
     dbg!(typed_ast);
 
-    Ok(())
+    if !ctx.errors.borrow().is_empty() {
+        Err(CompilerErrors {
+            src,
+            errors: ctx.errors.take(),
+        })
+    } else {
+        Ok(())
+    }
 }

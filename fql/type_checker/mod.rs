@@ -191,34 +191,23 @@ pub fn type_check(ctx: &CompileContext, ast: DesugaredAst) -> TypedAst {
 
     for tl in ast.functions {
         let f = tl.function;
-        // 1) Re-apply previous substitutions so the env
-        //    is always up‐to‐date:
         env.apply_substitution(&global_subst);
 
-        // 2) Run W on this one function‐body
         let (typed_body, s) = w(ctx, &mut env, &f.expr);
-
-        // 3) Its monotype after W
         let mono = typed_body.ty().clone().substitute(&s);
 
-        // 4) Generalize that into a scheme
         let scheme = mono.generalize(&env);
-
-        // 5) Install the *scheme* for f.name
         env.insert_in_current_scope(f.name, scheme);
 
-        // 6) Record this function’s TypedFunction
         typed_functions.push(Spanned::with_span(
             TypedFunction {
                 name: f.name,
                 params: f.params.clone(),
                 expr: Box::new(typed_body),
             },
-            f.span(), // the span
+            f.span(),
         ));
 
-        // 7) And remember to accumulate its substitution
-        //    so that future bodies see it
         global_subst = global_subst.compose(&s);
     }
 

@@ -1,0 +1,8 @@
+[unstable]
+codegen-backend = true
+
+[profile.dev]
+codegen-backend = "cranelift"
+
+# [target.x86_64-unknown-linux-gnu]   # adjust for your host triple
+# rustc-codegen-backends = { cranelift = "/absolute/path/to/rustc_codegen_cranelift/dist/librustc_codegen_cranelift.so" }

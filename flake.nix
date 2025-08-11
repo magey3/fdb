@@ -32,9 +32,20 @@
 
         inherit (pkgs) lib;
 
+        stdenv = p: p.stdenvAdapters.useMoldLinker p.stdenv;
         fenixPkgs = fenix.packages.${system};
 
-        craneLib = (crane.mkLib pkgs).overrideToolchain fenixPkgs.default.toolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain (
+          fenixPkgs.complete.withComponents [
+            "cargo"
+            "clippy"
+            "rust-src"
+            "rustc"
+            "rustfmt"
+            "llvm-tools-preview"
+            "rustc-codegen-cranelift-preview"
+          ]
+        );
 
         fqlFilter = path: _type: builtins.match ".*fql$" path != null;
         fqlOrCargo = path: type: (fqlFilter path type) || (craneLib.filterCargoSources path type);
@@ -44,9 +55,8 @@
           name = "source";
         };
 
-        # Common arguments can be set here to avoid repeating them later
         commonArgs = {
-          inherit src;
+          inherit src stdenv;
           strictDeps = true;
 
           buildInputs = [
